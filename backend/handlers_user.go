@@ -144,6 +144,32 @@ func AssessmentSubmitHandler(c *gin.Context) {
 			Status:       "pending",
 		}
 		DB.Create(&therapy)
+		// Early warning prioritas ke DPA (termasuk WhatsApp bila aktif)
+		notifyDpaForStudentWellbeing(user, "Burnout", fmt.Sprintf(
+			"Mahasiswa bimbingan %s memiliki risiko burnout %s (skor %.1f/10) dan perlu monitoring akademik.",
+			user.Nama, risk, bScore), true)
+	} else {
+		// Deteksi kenaikan burnout signifikan antar-dua prediksi terakhir
+		var prevPrediction Prediction
+		DB.Where("user_id = ? AND id < ?", user.ID, prediction.ID).Order("timestamp desc").First(&prevPrediction)
+		if prevPrediction.ID != 0 {
+			warnings := detectWellbeingChange(prevPrediction.BurnoutScore, bScore, 0, 0, config)
+			if len(warnings) > 0 {
+				notifyDpaForStudentWellbeing(user, "Burnout", fmt.Sprintf(
+					"Mahasiswa bimbingan %s: indikator burnout meningkat dari %.1f ke %.1f. Perlu monitoring akademik.",
+					user.Nama, prevPrediction.BurnoutScore, bScore), true)
+			}
+		}
+	}
+
+	// Hasil tes burnout selalu diteruskan ke DPA pembimbing.
+	if user.DpaID != 0 {
+		cat := burnoutCategoryLabel(bScore, config)
+		DB.Create(&Notification{
+			UserID:  user.DpaID,
+			Type:    "student_burnout_update",
+			Message: fmt.Sprintf("Hasil tes burnout %s: skor %.1f/10 (%s), risiko %s.", user.Nama, bScore, cat, risk),
+		})
 	}
 
 	c.JSON(http.StatusOK, gin.H{

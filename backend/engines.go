@@ -650,9 +650,10 @@ Skor harus 0.0-1.0. Untuk topik umum tanpa sinyal distress, gunakan skor rendah 
 			{"role": "system", "content": systemPrompt},
 			{"role": "user", "content": userContent},
 		},
-		"max_tokens":      1100,
-		"temperature":     provider.Temperature,
-		"response_format": map[string]string{"type": "json_object"},
+		"max_tokens":       1100,
+		"temperature":      provider.Temperature,
+		"response_format":  map[string]string{"type": "json_object"},
+		"reasoning_effort": "none",
 	}
 	requestBody, _ := json.Marshal(requestPayload)
 
@@ -666,7 +667,7 @@ Skor harus 0.0-1.0. Untuk topik umum tanpa sinyal distress, gunakan skor rendah 
 	req.Header.Set("HTTP-Referer", provider.Referer)
 	req.Header.Set("X-Title", provider.Title)
 
-	client := &http.Client{Timeout: 18 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		local.Source = "local"

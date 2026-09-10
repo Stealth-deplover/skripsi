@@ -1,0 +1,49 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: nexusmind_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: nexusmind
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - db_data:/var/lib/mysql
+
+  backend:
+    build: ./backend
+    container_name: nexusmind_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: "8080"
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_USER: root
+      DB_PASS: ""
+      DB_NAME: nexusmind
+      CORS_ALLOWED_ORIGINS: "https://edwinsrinzzz.nazxf.my.id"
+      OPENROUTER_API_KEY: ""
+      XKIRO_API_KEY: "sk-xt-695501a4fe307eddaa6a74122bc5f6676257b3f6ea56c99a"
+      XKIRO_API_BASE_URL: "https://api.xkiro.com/v1"
+      XKIRO_MODEL: "deepseek/deepseek-v4-flash"
+    expose:
+      - "8080"
+
+  frontend:
+    build: ./frontend
+    container_name: nexusmind_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "127.0.0.1:9000:80"
+
+volumes:
+  db_data:

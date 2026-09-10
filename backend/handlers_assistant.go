@@ -145,9 +145,8 @@ func AssistantChatHandler(c *gin.Context) {
 
 func buildAssistantContextResponse(user User) AssistantContextResponse {
 	stats := map[string]interface{}{
-		"role":      user.Role,
-		"name":      user.Nama,
-		"user_type": normalizeUserType(user.UserType),
+		"role": user.Role,
+		"name": user.Nama,
 	}
 	actions := assistantActionsForRole(user.Role)
 	response := AssistantContextResponse{
@@ -158,7 +157,7 @@ func buildAssistantContextResponse(user User) AssistantContextResponse {
 		Actions:     actions,
 	}
 
-	if user.Role == "admin" {
+	if user.Role == RoleSuperadmin {
 		now := time.Now()
 		startOfDay := startOfLocalDay(now)
 		var respondents int64
@@ -170,13 +169,11 @@ func buildAssistantContextResponse(user User) AssistantContextResponse {
 		var highRiskCount int64
 		var overdueFollowUps int64
 		var students int64
-		var employees int64
 		var postsToday int64
 		var curhatsToday int64
 		var usersWithPrediction int64
-		DB.Model(&User{}).Where("role <> ?", "admin").Count(&respondents)
-		DB.Model(&User{}).Where("role <> ? AND user_type = ?", "admin", "mahasiswa").Count(&students)
-		DB.Model(&User{}).Where("role <> ? AND user_type = ?", "admin", "karyawan").Count(&employees)
+		DB.Model(&User{}).Where("role = ?", RoleStudent).Count(&respondents)
+		DB.Model(&User{}).Where("role = ?", RoleStudent).Count(&students)
 		DB.Model(&TherapyRecommendation{}).Where("status = ?", "pending").Count(&pendingTreatments)
 		DB.Model(&TherapyRecommendation{}).Where("status = ? AND follow_up_date IS NOT NULL AND follow_up_date <= ?", "pending", now).Count(&overdueFollowUps)
 		DB.Model(&TreatmentReply{}).Where("admin_seen = ?", false).Count(&unseenReplies)
@@ -197,7 +194,6 @@ func buildAssistantContextResponse(user User) AssistantContextResponse {
 
 		stats["respondents"] = respondents
 		stats["students"] = students
-		stats["employees"] = employees
 		stats["pending_treatments"] = pendingTreatments
 		stats["overdue_follow_ups"] = overdueFollowUps
 		stats["unseen_replies"] = unseenReplies
@@ -281,7 +277,7 @@ func buildAssistantContextResponse(user User) AssistantContextResponse {
 			})
 		}
 		response.Needs = sortAssistantNeeds(needs)
-		response.Summary = fmt.Sprintf("%d responden (%d mahasiswa, %d karyawan), %d risiko tinggi, %d balasan baru, %d follow-up jatuh tempo, dan %d asesmen masuk hari ini.", respondents, students, employees, highRiskCount, unseenReplies, overdueFollowUps, assessmentsToday)
+		response.Summary = fmt.Sprintf("%d responden (%d mahasiswa), %d risiko tinggi, %d balasan baru, %d follow-up jatuh tempo, dan %d asesmen masuk hari ini.", respondents, students, highRiskCount, unseenReplies, overdueFollowUps, assessmentsToday)
 		response.SeedTasks = buildAdminSeedTasks(highRiskCount, unseenReplies, pendingTreatments, overdueFollowUps)
 		return response
 	}
@@ -388,7 +384,7 @@ func buildAssistantContextResponse(user User) AssistantContextResponse {
 }
 
 func assistantActionsForRole(role string) []AssistantAction {
-	if role == "admin" {
+	if role == RoleSuperadmin {
 		return []AssistantAction{
 			{Label: "Dashboard", Path: "/dashboard", Description: "Ringkasan operasional admin"},
 			{Label: "Data Responden", Path: "/responden", Description: "Pantau responden dan balasan terapi"},
@@ -549,7 +545,7 @@ func fallbackAssistantReply(user User, message string, context map[string]interf
 	keyPoints := []string{"Kamu bisa meminta ringkasan kondisi, bantuan navigasi, atau rencana singkat."}
 	nextSteps := []string{"Tulis kebutuhanmu secara spesifik agar aku bisa memberi saran yang lebih tepat."}
 
-	if user.Role == "admin" {
+	if user.Role == RoleSuperadmin {
 		title = "Prioritas admin saat ini"
 		reply = fmt.Sprintf(
 			"Ada %v responden, %v balasan terapi belum dibaca, dan %v rekomendasi masih pending. Aku bisa bantu buka prioritas kerja yang paling perlu dilihat.",

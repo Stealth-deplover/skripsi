@@ -14,8 +14,8 @@ import (
 
 func AdminGuard(c *gin.Context) bool {
 	user := c.MustGet("user").(User)
-	if user.Role != "admin" {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Admin access required"})
+	if user.Role != RoleSuperadmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Akses superadmin diperlukan"})
 		return false
 	}
 	return true
@@ -44,7 +44,6 @@ func RespondenGetHandler(c *gin.Context) {
 		LatestRisk          string    `json:"latest_risk"`
 		LatestPsychosomatic float64   `json:"latest_psychosomatic"`
 		LastActivity        time.Time `json:"last_activity"`
-		UserType            string    `json:"user_type"`
 		LatestMBTIType      string    `json:"latest_mbti_type"`
 		LatestMBTITitle     string    `json:"latest_mbti_title"`
 		LatestMBTISummary   string    `json:"latest_mbti_summary"`
@@ -53,7 +52,7 @@ func RespondenGetHandler(c *gin.Context) {
 
 	var result []RespondenDTO
 	for _, u := range users {
-		if u.Role == "admin" {
+		if isAdminLevelRole(u.Role) {
 			continue
 		}
 
@@ -61,7 +60,6 @@ func RespondenGetHandler(c *gin.Context) {
 			ID:       u.ID,
 			Nama:     u.Nama,
 			Username: u.Username,
-			UserType: normalizeUserType(u.UserType),
 		}
 
 		if len(u.Predictions) > 0 {
@@ -132,14 +130,33 @@ func AdminUsersGetHandler(c *gin.Context) {
 		Bio        string    `json:"bio"`
 		ProfilePic string    `json:"profile_pic"`
 		UserType   string    `json:"user_type"`
+		Nim        string    `json:"nim"`
+		Prodi      string    `json:"prodi"`
+		Angkatan   string    `json:"angkatan"`
+		Semester   int       `json:"semester"`
+		Ipk        float64   `json:"ipk"`
+		Ips        float64   `json:"ips"`
+		Sks        int       `json:"sks"`
+		Kehadiran  float64   `json:"kehadiran"`
+		DpaID      uint      `json:"dpa_id"`
+		DpaName    string    `json:"dpa_name"`
 		CreatedAt  time.Time `json:"created_at"`
 		UpdatedAt  time.Time `json:"updated_at"`
+	}
+	dpaNames := map[uint]string{}
+	for _, u := range users {
+		if isDpaRole(u.Role) {
+			dpaNames[u.ID] = u.Nama
+		}
 	}
 	var result []UserDTO
 	for _, u := range users {
 		result = append(result, UserDTO{
 			ID: u.ID, Username: u.Username, Nama: u.Nama,
-			Role: u.Role, Bio: u.Bio, ProfilePic: u.ProfilePic, UserType: normalizeUserType(u.UserType),
+			Role: u.Role, Bio: u.Bio, ProfilePic: u.ProfilePic,
+			Nim: u.Nim, Prodi: u.Prodi, Angkatan: u.Angkatan, Semester: u.Semester,
+			Ipk: u.Ipk, Ips: u.Ips, Sks: u.Sks, Kehadiran: u.Kehadiran,
+			DpaID: u.DpaID, DpaName: dpaNames[u.DpaID],
 			CreatedAt: u.CreatedAt, UpdatedAt: u.UpdatedAt,
 		})
 	}
@@ -156,9 +173,18 @@ func AdminUsersGetByIDHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
 	}
+	dpaName := ""
+	if user.DpaID > 0 {
+		var dpa User
+		DB.First(&dpa, user.DpaID)
+		dpaName = dpa.Nama
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"id": user.ID, "username": user.Username, "nama": user.Nama,
-		"role": user.Role, "bio": user.Bio, "profile_pic": user.ProfilePic, "user_type": normalizeUserType(user.UserType),
+		"role": user.Role, "bio": user.Bio, "profile_pic": user.ProfilePic,
+		"nim": user.Nim, "prodi": user.Prodi, "angkatan": user.Angkatan, "semester": user.Semester,
+		"ipk": user.Ipk, "ips": user.Ips, "sks": user.Sks, "kehadiran": user.Kehadiran,
+		"dpa_id": user.DpaID, "dpa_name": dpaName,
 		"created_at": user.CreatedAt, "updated_at": user.UpdatedAt,
 	})
 }
@@ -172,9 +198,18 @@ func AdminUsersCreateHandler(c *gin.Context) {
 		Username string `json:"username" binding:"required"`
 		Nama     string `json:"nama" binding:"required"`
 		Role     string `json:"role" binding:"required"`
-		UserType string `json:"user_type"`
 		Password string `json:"password" binding:"required"`
 		Bio      string `json:"bio"`
+		// Profil akademik mahasiswa
+		Nim       string  `json:"nim"`
+		Prodi     string  `json:"prodi"`
+		Angkatan  string  `json:"angkatan"`
+		Semester  int     `json:"semester"`
+		Ipk       float64 `json:"ipk"`
+		Ips       float64 `json:"ips"`
+		Sks       int     `json:"sks"`
+		Kehadiran float64 `json:"kehadiran"`
+		DpaID     uint    `json:"dpa_id"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -185,8 +220,8 @@ func AdminUsersCreateHandler(c *gin.Context) {
 	input.Nama = strings.TrimSpace(input.Nama)
 	input.Role = strings.ToLower(strings.TrimSpace(input.Role))
 
-	if input.Role != "admin" && input.Role != "user" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Role harus admin atau user"})
+	if !isValidRole(input.Role) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Role harus student, dpa, staff, atau superadmin"})
 		return
 	}
 	if input.Nama == "" || len(input.Nama) < 3 {
@@ -202,15 +237,6 @@ func AdminUsersCreateHandler(c *gin.Context) {
 		return
 	}
 
-	userType := normalizeUserType(input.UserType)
-	if input.Role == "user" && !isValidUserType(input.UserType) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Pilih mahasiswa atau karyawan"})
-		return
-	}
-	if input.Role == "admin" {
-		userType = "karyawan"
-	}
-
 	var count int64
 	DB.Model(&User{}).Where("username = ?", input.Username).Count(&count)
 	if count > 0 {
@@ -224,8 +250,25 @@ func AdminUsersCreateHandler(c *gin.Context) {
 		PasswordHash: hashedPassword,
 		Nama:         input.Nama,
 		Role:         input.Role,
-		UserType:     userType,
 		Bio:          input.Bio,
+		Nim:          strings.TrimSpace(input.Nim),
+		Prodi:        strings.TrimSpace(input.Prodi),
+		Angkatan:     strings.TrimSpace(input.Angkatan),
+		Semester:     input.Semester,
+		Ipk:          input.Ipk,
+		Ips:          input.Ips,
+		Sks:          input.Sks,
+		Kehadiran:    input.Kehadiran,
+	}
+	if input.DpaID > 0 {
+		if input.Role == RoleStudent {
+			var dpa User
+			if err := DB.Where("id = ? AND role = ?", input.DpaID, RoleDPA).First(&dpa).Error; err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "DPA tidak ditemukan"})
+				return
+			}
+			user.DpaID = input.DpaID
+		}
 	}
 	if err := DB.Create(&user).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal membuat user"})
@@ -233,7 +276,7 @@ func AdminUsersCreateHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "User created", "user": gin.H{
-		"id": user.ID, "username": user.Username, "nama": user.Nama, "role": user.Role, "user_type": normalizeUserType(user.UserType),
+		"id": user.ID, "username": user.Username, "nama": user.Nama, "role": user.Role,
 	}})
 }
 
@@ -253,7 +296,16 @@ func AdminUsersPutHandler(c *gin.Context) {
 		Role     string `json:"role"`
 		Bio      string `json:"bio"`
 		Password string `json:"password"`
-		UserType string `json:"user_type"`
+		// Profil akademik mahasiswa
+		Nim       string  `json:"nim"`
+		Prodi     string  `json:"prodi"`
+		Angkatan  string  `json:"angkatan"`
+		Semester  *int    `json:"semester"`
+		Ipk       *float64 `json:"ipk"`
+		Ips       *float64 `json:"ips"`
+		Sks       *int    `json:"sks"`
+		Kehadiran *float64 `json:"kehadiran"`
+		DpaID     *uint   `json:"dpa_id"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -273,17 +325,71 @@ func AdminUsersPutHandler(c *gin.Context) {
 		updates["nama"] = input.Nama
 	}
 	if input.Role != "" {
-		updates["role"] = input.Role
+		normalized := strings.ToLower(strings.TrimSpace(input.Role))
+		if !isValidRole(normalized) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Role harus student, dpa, staff, atau superadmin"})
+			return
+		}
+		updates["role"] = normalized
 	}
 	if input.Bio != "" {
 		updates["bio"] = input.Bio
 	}
-	if input.UserType != "" {
-		if !isValidUserType(input.UserType) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Jenis pengguna tidak valid"})
+	if input.Nim != "" {
+		updates["nim"] = strings.TrimSpace(input.Nim)
+	}
+	if input.Prodi != "" {
+		updates["prodi"] = strings.TrimSpace(input.Prodi)
+	}
+	if input.Angkatan != "" {
+		updates["angkatan"] = strings.TrimSpace(input.Angkatan)
+	}
+	if input.Semester != nil {
+		if *input.Semester < 0 || *input.Semester > 14 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Semester harus di antara 0 dan 14"})
 			return
 		}
-		updates["user_type"] = normalizeUserType(input.UserType)
+		updates["semester"] = *input.Semester
+	}
+	if input.Ipk != nil {
+		if *input.Ipk < 0 || *input.Ipk > 4 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "IPK harus di antara 0 dan 4"})
+			return
+		}
+		updates["ipk"] = *input.Ipk
+	}
+	if input.Ips != nil {
+		if *input.Ips < 0 || *input.Ips > 4 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "IPS harus di antara 0 dan 4"})
+			return
+		}
+		updates["ips"] = *input.Ips
+	}
+	if input.Sks != nil {
+		if *input.Sks < 0 || *input.Sks > 160 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "SKS harus di antara 0 dan 160"})
+			return
+		}
+		updates["sks"] = *input.Sks
+	}
+	if input.Kehadiran != nil {
+		if *input.Kehadiran < 0 || *input.Kehadiran > 100 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Kehadiran harus di antara 0 dan 100"})
+			return
+		}
+		updates["kehadiran"] = *input.Kehadiran
+	}
+	if input.DpaID != nil {
+		if *input.DpaID == 0 {
+			updates["dpa_id"] = 0
+		} else {
+			var dpa User
+			if err := DB.Where("id = ? AND role = ?", *input.DpaID, RoleDPA).First(&dpa).Error; err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "DPA tidak ditemukan"})
+				return
+			}
+			updates["dpa_id"] = *input.DpaID
+		}
 	}
 	if input.Password != "" {
 		hashedPassword, _ := HashPassword(input.Password)
@@ -292,7 +398,83 @@ func AdminUsersPutHandler(c *gin.Context) {
 	if len(updates) > 0 {
 		DB.Model(&target).Updates(updates)
 	}
+	// Notifikasi mapping: mahasiswa tahu siapa DPA-nya, DPA tahu bimbingan baru.
+	if newDpaID, ok := updates["dpa_id"].(uint); ok && newDpaID != 0 && newDpaID != target.DpaID {
+		var dpa User
+		if err := DB.First(&dpa, newDpaID).Error; err == nil {
+			DB.Create(&Notification{
+				UserID:  dpa.ID,
+				Type:    "student_wellbeing",
+				Message: fmt.Sprintf("Mahasiswa %s dipetakan sebagai bimbingan Anda.", target.Nama),
+			})
+			DB.Create(&Notification{
+				UserID:  target.ID,
+				Type:    "student_wellbeing",
+				Message: fmt.Sprintf("DPA pembimbing Anda adalah %s. Buka menu DPA Saya untuk melihat profil dan grup bimbingan.", dpa.Nama),
+			})
+		}
+	}
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "User updated"})
+}
+
+// AdminBulkDpaHandler memetakan banyak mahasiswa ke satu DPA sekaligus.
+// Body: {dpa_id, student_ids: []}. Hanya user role student yang diproses.
+func AdminBulkDpaHandler(c *gin.Context) {
+	if !AdminGuard(c) {
+		return
+	}
+	var input struct {
+		DpaID      uint   `json:"dpa_id" binding:"required"`
+		StudentIDs []uint `json:"student_ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "dpa_id dan student_ids wajib diisi"})
+		return
+	}
+	var dpa User
+	if err := DB.Where("id = ? AND role = ?", input.DpaID, RoleDPA).First(&dpa).Error; err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "DPA tidak ditemukan"})
+		return
+	}
+
+	updated := 0
+	skipped := 0
+	for _, studentID := range input.StudentIDs {
+		var student User
+		if err := DB.Where("id = ? AND role = ?", studentID, RoleStudent).First(&student).Error; err != nil {
+			skipped++
+			continue
+		}
+		if student.DpaID == input.DpaID {
+			skipped++
+			continue
+		}
+		if err := DB.Model(&student).Update("dpa_id", input.DpaID).Error; err != nil {
+			skipped++
+			continue
+		}
+		updated++
+		DB.Create(&Notification{
+			UserID:  student.ID,
+			Type:    "student_wellbeing",
+			Message: fmt.Sprintf("DPA pembimbing Anda adalah %s. Buka menu DPA Saya untuk melihat profil dan grup bimbingan.", dpa.Nama),
+		})
+	}
+
+	if updated > 0 {
+		DB.Create(&Notification{
+			UserID:  dpa.ID,
+			Type:    "student_wellbeing",
+			Message: fmt.Sprintf("%d mahasiswa baru dipetakan sebagai bimbingan Anda.", updated),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":   "success",
+		"message":  fmt.Sprintf("%d mahasiswa dipetakan ke %s.", updated, dpa.Nama),
+		"updated":  updated,
+		"skipped":  skipped,
+	})
 }
 
 func AdminUsersDeleteHandler(c *gin.Context) {
@@ -512,7 +694,7 @@ func AdminAnalyticsHandler(c *gin.Context) {
 	var scatterData []ScatterPoint
 
 	for _, u := range users {
-		if u.Role == "admin" {
+		if isAdminLevelRole(u.Role) {
 			continue
 		}
 		totalRespondents++
@@ -570,7 +752,7 @@ func AdminAnalyticsHandler(c *gin.Context) {
 	if config.EarlyWarningEnabled {
 		warningScore := config.EarlyWarningThreshold * 10
 		for _, user := range users {
-			if user.Role == "admin" || len(user.Predictions) == 0 {
+			if isAdminLevelRole(user.Role) || len(user.Predictions) == 0 {
 				continue
 			}
 			if user.Predictions[0].BurnoutScore >= warningScore {
@@ -583,20 +765,12 @@ func AdminAnalyticsHandler(c *gin.Context) {
 	type GroupedScores struct {
 		All       []float64
 		Mahasiswa []float64
-		Karyawan  []float64
 	}
 	dateGroups := make(map[string]*GroupedScores)
 	var orderedDates []string
-	var predictionUsers []struct {
-		Prediction
-		UserType string
-	}
-	DB.Table("predictions").
-		Select("predictions.*, users.user_type").
-		Joins("JOIN users ON users.id = predictions.user_id").
-		Order("predictions.timestamp ASC").
-		Scan(&predictionUsers)
-	for _, p := range predictionUsers {
+	var predictionsAll []Prediction
+	DB.Order("timestamp ASC").Find(&predictionsAll)
+	for _, p := range predictionsAll {
 		dateStr := p.Timestamp.Format("02 Jan")
 		if dateGroups[dateStr] == nil {
 			orderedDates = append(orderedDates, dateStr)
@@ -604,18 +778,13 @@ func AdminAnalyticsHandler(c *gin.Context) {
 		}
 		group := dateGroups[dateStr]
 		group.All = append(group.All, p.BurnoutScore)
-		if normalizeUserType(p.UserType) == "karyawan" {
-			group.Karyawan = append(group.Karyawan, p.BurnoutScore)
-		} else {
-			group.Mahasiswa = append(group.Mahasiswa, p.BurnoutScore)
-		}
+		group.Mahasiswa = append(group.Mahasiswa, p.BurnoutScore)
 	}
 
 	type TrendDay struct {
 		Date      string  `json:"date"`
 		Semua     float64 `json:"semua"`
 		Mahasiswa float64 `json:"mahasiswa"`
-		Karyawan  float64 `json:"karyawan"`
 	}
 	var trendData []TrendDay
 
@@ -626,7 +795,6 @@ func AdminAnalyticsHandler(c *gin.Context) {
 			Date:      d,
 			Semua:     mean(scores.All),
 			Mahasiswa: mean(scores.Mahasiswa),
-			Karyawan:  mean(scores.Karyawan),
 		})
 	}
 
@@ -751,10 +919,52 @@ func AdminConfigPutHandler(c *gin.Context) {
 		DataRetentionDays      int     `json:"DataRetentionDays"`
 		ModelVersion           string  `json:"ModelVersion"`
 		AppName                string  `json:"AppName"`
+		// Happiness Index
+		HiWeightAcademic   float64 `json:"HiWeightAcademic"`
+		HiWeightMotivation float64 `json:"HiWeightMotivation"`
+		HiWeightSocial     float64 `json:"HiWeightSocial"`
+		HiWeightLecturer   float64 `json:"HiWeightLecturer"`
+		HiWeightEnvironment float64 `json:"HiWeightEnvironment"`
+		HiWeightFacilities float64 `json:"HiWeightFacilities"`
+		WellbeingWarnBurnoutRise   float64 `json:"WellbeingWarnBurnoutRise"`
+		WellbeingWarnHappinessDrop float64 `json:"WellbeingWarnHappinessDrop"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	// Field happiness bernilai 0 berarti tidak dikirim client → pakai nilai existing.
+	hiAcademic := input.HiWeightAcademic
+	if hiAcademic == 0 {
+		hiAcademic = config.HiWeightAcademic
+	}
+	hiMotivation := input.HiWeightMotivation
+	if hiMotivation == 0 {
+		hiMotivation = config.HiWeightMotivation
+	}
+	hiSocial := input.HiWeightSocial
+	if hiSocial == 0 {
+		hiSocial = config.HiWeightSocial
+	}
+	hiLecturer := input.HiWeightLecturer
+	if hiLecturer == 0 {
+		hiLecturer = config.HiWeightLecturer
+	}
+	hiEnvironment := input.HiWeightEnvironment
+	if hiEnvironment == 0 {
+		hiEnvironment = config.HiWeightEnvironment
+	}
+	hiFacilities := input.HiWeightFacilities
+	if hiFacilities == 0 {
+		hiFacilities = config.HiWeightFacilities
+	}
+	warnRise := input.WellbeingWarnBurnoutRise
+	if warnRise == 0 {
+		warnRise = config.WellbeingWarnBurnoutRise
+	}
+	warnDrop := input.WellbeingWarnHappinessDrop
+	if warnDrop == 0 {
+		warnDrop = config.WellbeingWarnHappinessDrop
 	}
 	next := normalizeSystemConfig(SystemConfig{
 		BurnoutThresholdLow:    input.BurnoutThresholdLow,
@@ -771,6 +981,14 @@ func AdminConfigPutHandler(c *gin.Context) {
 		DataRetentionDays:      input.DataRetentionDays,
 		ModelVersion:           strings.TrimSpace(input.ModelVersion),
 		AppName:                strings.TrimSpace(input.AppName),
+		HiWeightAcademic:       hiAcademic,
+		HiWeightMotivation:     hiMotivation,
+		HiWeightSocial:         hiSocial,
+		HiWeightLecturer:       hiLecturer,
+		HiWeightEnvironment:    hiEnvironment,
+		HiWeightFacilities:     hiFacilities,
+		WellbeingWarnBurnoutRise:   warnRise,
+		WellbeingWarnHappinessDrop: warnDrop,
 	})
 	if next.BurnoutThresholdLow >= next.BurnoutThresholdMedium || next.PsychoThresholdLow >= next.PsychoThresholdMedium {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Threshold rendah harus lebih kecil dari threshold sedang"})
@@ -797,6 +1015,14 @@ func AdminConfigPutHandler(c *gin.Context) {
 		"data_retention_days":      next.DataRetentionDays,
 		"model_version":            next.ModelVersion,
 		"app_name":                 next.AppName,
+		"hi_weight_academic":       next.HiWeightAcademic,
+		"hi_weight_motivation":     next.HiWeightMotivation,
+		"hi_weight_social":         next.HiWeightSocial,
+		"hi_weight_lecturer":       next.HiWeightLecturer,
+		"hi_weight_environment":    next.HiWeightEnvironment,
+		"hi_weight_facilities":     next.HiWeightFacilities,
+		"wellbeing_warn_burnout_rise":   next.WellbeingWarnBurnoutRise,
+		"wellbeing_warn_happiness_drop": next.WellbeingWarnHappinessDrop,
 	})
 	c.JSON(http.StatusOK, gin.H{"status": "success", "message": "Configuration updated", "config": next})
 }

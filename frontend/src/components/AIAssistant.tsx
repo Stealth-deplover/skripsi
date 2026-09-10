@@ -24,7 +24,7 @@ import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 
-type AssistantRole = 'admin' | 'user';
+type AssistantRole = 'admin' | 'dpa' | 'staff' | 'user';
 type AssistantTab = 'chat' | 'prioritas' | 'jadwal';
 type InsightTone = 'urgent' | 'warning' | 'info' | 'success';
 
@@ -114,6 +114,16 @@ const actionSets: Record<AssistantRole, AssistantAction[]> = {
     { label: 'Analitik', path: '/analitik', description: 'Lihat insight data' },
     { label: 'Laporan', path: '/laporan', description: 'Buka laporan dan ekspor' },
   ],
+  dpa: [
+    { label: 'Dashboard DPA', path: '/dpa/dashboard', description: 'Pantau mahasiswa bimbingan' },
+    { label: 'Mahasiswa Bimbingan', path: '/dpa/mahasiswa', description: 'Detail dan catatan mahasiswa' },
+    { label: 'Bimbingan Akademik', path: '/dpa/bimbingan', description: 'Sesi bimbingan dan syarat ujian' },
+    { label: 'Grup Chat', path: '/dpa/chat', description: 'Diskusi antar anggota bimbingan' },
+  ],
+  staff: [
+    { label: 'Dashboard Staf', path: '/staff/dashboard', description: 'Antrean laporan bimbingan' },
+    { label: 'Proses Laporan', path: '/staff/dashboard', description: 'Selesaikan atau tolak laporan DPA' },
+  ],
   user: [
     { label: 'Dashboard', path: '/user/dashboard', description: 'Lihat kondisi hari ini' },
     { label: 'Kuisioner', path: '/user/kuisioner', description: 'Isi asesmen dan MBTI' },
@@ -128,6 +138,16 @@ const quickPrompts: Record<AssistantRole, string[]> = {
     'Baca semua data penting sistem sekarang.',
     'Buatkan rencana kerja prioritas hari ini.',
   ],
+  dpa: [
+    'Mahasiswa bimbingan mana yang paling perlu saya pantau?',
+    'Baca kondisi bimbingan saya sekarang.',
+    'Buatkan rencana bimbingan minggu ini.',
+  ],
+  staff: [
+    'Laporan bimbingan apa yang paling mendesak untuk diproses?',
+    'Rangkum status antrean laporan saya.',
+    'Buat rencana kerja memproses laporan hari ini.',
+  ],
   user: [
     'Apa yang paling saya perlukan sekarang?',
     'Baca kondisi saya dari data terbaru.',
@@ -139,23 +159,31 @@ const storageKey = (role: AssistantRole) => `nexus_assistant_history_${role}`;
 const seenInsightKey = (role: AssistantRole) => `nexus_assistant_seen_insight_${role}`;
 
 function buildGreeting(role: AssistantRole): AssistantMessage {
+  const isAdmin = role === 'admin';
+  const isDpa = role === 'dpa';
   return {
     id: 'welcome',
     role: 'assistant',
-    mood: role === 'admin' ? 'focused' : 'supportive',
-    title: role === 'admin' ? 'Pusat bantu admin' : 'Teman bantu harian',
+    mood: isAdmin || isDpa ? 'focused' : 'supportive',
+    title: isAdmin ? 'Pusat bantu admin' : isDpa ? 'Pusat bantu DPA' : 'Teman bantu harian',
     text:
-      role === 'admin'
+      isAdmin
         ? 'Halo. Aku membaca keadaan sistem dan siap membantu memprioritaskan tindak lanjut, membuka fitur, atau merapikan jadwal kerja.'
-        : 'Halo. Aku bisa membaca kondisi terbaru, menemani ngobrol, memberi saran, dan menyusun ritme hari ini supaya lebih masuk akal.',
+        : isDpa
+          ? 'Halo. Aku membaca kabar mahasiswa bimbinganmu dan siap membantu memantau prioritas bimbingan.'
+          : 'Halo. Aku bisa membaca kondisi terbaru, menemani ngobrol, memberi saran, dan menyusun ritme hari ini supaya lebih masuk akal.',
     keyPoints:
-      role === 'admin'
+      isAdmin
         ? ['Membaca prioritas operasional.', 'Mengarahkan ke fitur yang paling relevan.', 'Menyusun jadwal kerja berbasis konteks.']
-        : ['Membaca kondisi terbaru.', 'Menemani obrolan dan memberi saran praktis.', 'Membantu menyusun jadwal harian.'],
+        : isDpa
+          ? ['Membaca kabar mahasiswa bimbingan.', 'Mengarahkan ke fitur bimbingan yang relevan.', 'Menemukan mahasiswa yang perlu dipantau.']
+          : ['Membaca kondisi terbaru.', 'Menemani obrolan dan memberi saran praktis.', 'Membantu menyusun jadwal harian.'],
     nextSteps:
-      role === 'admin'
+      isAdmin
         ? ['Pilih prompt cepat atau minta ringkasan prioritas hari ini.']
-        : ['Mulai dari prompt cepat atau tulis yang sedang kamu perlukan.'],
+        : isDpa
+          ? ['Mulai dari prompt cepat atau tanya kabar mahasiswa bimbinganmu.']
+          : ['Mulai dari prompt cepat atau tulis yang sedang kamu perlukan.'],
     actions: actionSets[role].slice(0, 3),
   };
 }
@@ -255,6 +283,58 @@ function buildSeedTasks(role: AssistantRole, stats: Record<string, any>): Assist
     return tasks;
   }
 
+  if (role === 'dpa') {
+    const tasks: AssistantTask[] = [];
+    if (Number(stats.priority_monitoring || 0) > 0) {
+      tasks.push({
+        id: 'dpa-monitor-priority',
+        title: 'Pantau mahasiswa prioritas',
+        duration_minutes: Math.min(Math.max(Number(stats.priority_monitoring) * 10, 20), 60),
+        priority: 'urgent',
+      });
+    }
+    if (Number(stats.burnout_tinggi || 0) > 0) {
+      tasks.push({
+        id: 'dpa-review-burnout',
+        title: 'Tindak lanjuti burnout tinggi',
+        duration_minutes: Math.min(Math.max(Number(stats.burnout_tinggi) * 8, 15), 60),
+        priority: 'high',
+      });
+    }
+    if (Number(stats.belum_isi || 0) > 0) {
+      tasks.push({
+        id: 'dpa-followup-assessment',
+        title: 'Ingatkan mahasiswa isi asesmen',
+        duration_minutes: Math.min(Math.max(Number(stats.belum_isi) * 6, 15), 45),
+        priority: 'high',
+      });
+    }
+    tasks.push({
+      id: 'dpa-push',
+      title: 'Sapa dan hadir untuk mahasiswa bimbingan',
+      duration_minutes: 20,
+      priority: 'medium',
+    });
+    return tasks;
+  }
+
+  if (role === 'staff') {
+    const tasks: AssistantTask[] = [];
+    tasks.push({
+      id: 'staff-process-reports',
+      title: 'Proses laporan bimbingan yang masuk',
+      duration_minutes: 30,
+      priority: 'high',
+    });
+    tasks.push({
+      id: 'staff-archive',
+      title: 'Arsipkan dokumen laporan selesai',
+      duration_minutes: 15,
+      priority: 'medium',
+    });
+    return tasks;
+  }
+
   const tasks: AssistantTask[] = [];
   if (stats.latest_risk === 'High' || stats.latest_risk === 'Crisis') {
     tasks.push({
@@ -321,7 +401,7 @@ function buildFallbackNeeds(role: AssistantRole, stats: Record<string, any>): As
         metric_value: String(stats.pending_treatments),
       });
     }
-  } else {
+  } else if (role === 'user') {
     if (stats.latest_risk === 'High' || stats.latest_risk === 'Crisis') {
       needs.push({
         id: 'fallback-user-risk',
@@ -358,6 +438,80 @@ function buildFallbackNeeds(role: AssistantRole, stats: Record<string, any>): As
         metric_value: String(stats.unread_notifications),
       });
     }
+  } else if (role === 'staff') {
+    if (Number(stats.diproses || 0) > 0) {
+      needs.push({
+        id: 'fallback-staff-pending-reports',
+        title: 'Laporan bimbingan menunggu diproses',
+        body: `${stats.diproses} laporan syarat UTS/UAS menunggu tindakan Anda.`,
+        tone: 'urgent',
+        priority: 1,
+        action: actionSets.staff.find((action) => action.path === '/staff/dashboard'),
+        metric_label: 'Menunggu',
+        metric_value: String(stats.diproses),
+      });
+    }
+    if (Number(stats.total || 0) > 0) {
+      needs.push({
+        id: 'fallback-staff-total-reports',
+        title: 'Arsip laporan bimbingan',
+        body: `Total ${stats.total} laporan bimbingan tercatat di sistem.`,
+        tone: 'info',
+        priority: 2,
+        action: actionSets.staff.find((action) => action.path === '/staff/dashboard'),
+        metric_label: 'Total',
+        metric_value: String(stats.total),
+      });
+    }
+  } else {
+    if (Number(stats.priority_monitoring || 0) > 0) {
+      needs.push({
+        id: 'fallback-dpa-priority',
+        title: 'Mahasiswa prioritas butuh pantauan',
+        body: `${stats.priority_monitoring} mahasiswa masuk daftar prioritas pantau.`,
+        tone: 'urgent',
+        priority: 1,
+        action: actionSets.dpa.find((action) => action.path === '/dpa/dashboard'),
+        metric_label: 'Prioritas',
+        metric_value: String(stats.priority_monitoring),
+      });
+    }
+    if (Number(stats.burnout_tinggi || 0) > 0) {
+      needs.push({
+        id: 'fallback-dpa-burnout',
+        title: 'Ada mahasiswa burnout tinggi',
+        body: `${stats.burnout_tinggi} mahasiswa terdeteksi burnout tinggi dan perlu ditindak lanjuti.`,
+        tone: 'warning',
+        priority: 2,
+        action: actionSets.dpa.find((action) => action.path === '/dpa/dashboard'),
+        metric_label: 'Burnout',
+        metric_value: String(stats.burnout_tinggi),
+      });
+    }
+    if (Number(stats.belum_isi || 0) > 0) {
+      needs.push({
+        id: 'fallback-dpa-pending-assessment',
+        title: 'Mahasiswa belum isi asesmen',
+        body: `${stats.belum_isi} mahasiswa belum mengisi asesmen terbaru.`,
+        tone: 'info',
+        priority: 3,
+        action: actionSets.dpa.find((action) => action.path === '/dpa/mahasiswa'),
+        metric_label: 'Belum isi',
+        metric_value: String(stats.belum_isi),
+      });
+    }
+    if (Number(stats.unread_notifications || 0) > 0) {
+      needs.push({
+        id: 'fallback-dpa-notifications',
+        title: 'Ada notifikasi baru',
+        body: `${stats.unread_notifications} notifikasi belum dibaca.`,
+        tone: 'info',
+        priority: 4,
+        action: actionSets.dpa.find((action) => action.path === '/dpa/dashboard'),
+        metric_label: 'Notifikasi',
+        metric_value: String(stats.unread_notifications),
+      });
+    }
   }
 
   return needs.length
@@ -365,11 +519,15 @@ function buildFallbackNeeds(role: AssistantRole, stats: Record<string, any>): As
     : [
         {
           id: `fallback-${role}-stable`,
-          title: role === 'admin' ? 'Sistem relatif tenang' : 'Kondisi cukup terpantau',
+          title: role === 'admin' ? 'Sistem relatif tenang' : role === 'dpa' ? 'Bimbingan relatif tenang' : role === 'staff' ? 'Antrean laporan bersih' : 'Kondisi cukup terpantau',
           body:
             role === 'admin'
               ? 'Tidak ada antrean prioritas besar yang terbaca dari data saat ini.'
-              : 'Belum ada kebutuhan mendesak yang terbaca dari data saat ini.',
+              : role === 'dpa'
+                ? 'Tidak ada kebutuhan mendesak yang terbaca dari data mahasiswa bimbingan saat ini.'
+                : role === 'staff'
+                  ? 'Tidak ada laporan bimbingan yang menunggu diproses saat ini.'
+                  : 'Belum ada kebutuhan mendesak yang terbaca dari data saat ini.',
           tone: 'success',
           priority: 4,
           action: actionSets[role][0],
@@ -382,7 +540,11 @@ function buildFallbackContext(role: AssistantRole, stats: Record<string, any>): 
   const summary =
     role === 'admin'
       ? `${stats.respondents || 0} responden, ${stats.high_risk_respondents || 0} risiko tinggi, ${stats.unseen_replies || 0} balasan baru, dan ${stats.pending_treatments || 0} terapi pending.`
-      : `Risiko terakhir ${String(stats.latest_risk || '-').toLowerCase()}, ${stats.unread_notifications || 0} notifikasi belum dibaca, dan ${stats.pending_treatments || 0} saran terapi pending.`;
+      : role === 'dpa'
+        ? `${stats.total_students || 0} mahasiswa bimbingan, ${stats.priority_monitoring || 0} prioritas pantau, ${stats.burnout_tinggi || 0} burnout tinggi, dan ${stats.belum_isi || 0} belum mengisi asesmen.`
+        : role === 'staff'
+          ? `${stats.diproses || 0} laporan menunggu diproses dari total ${stats.total || 0} laporan bimbingan.`
+          : `Risiko terakhir ${String(stats.latest_risk || '-').toLowerCase()}, ${stats.unread_notifications || 0} notifikasi belum dibaca, dan ${stats.pending_treatments || 0} saran terapi pending.`;
 
   return {
     role,
@@ -525,11 +687,15 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
 
   const topNeed = context?.needs?.[0];
   const headlineStats = useMemo(() => {
-    const entries = Object.entries(context?.stats || {}).filter(([key]) => !['role', 'name', 'user_type'].includes(key));
+    const entries = Object.entries(context?.stats || {}).filter(([key]) => !['role', 'name'].includes(key));
     const preferredKeys =
       role === 'admin'
         ? ['high_risk_respondents', 'unseen_replies', 'pending_treatments']
-        : ['latest_risk', 'pending_treatments', 'unread_notifications'];
+        : role === 'dpa'
+          ? ['priority_monitoring', 'burnout_tinggi', 'warning_count']
+          : role === 'staff'
+            ? ['diproses', 'total', 'selesai']
+            : ['latest_risk', 'pending_treatments', 'unread_notifications'];
     const preferred = preferredKeys
       .map((key) => entries.find(([entryKey]) => entryKey === key))
       .filter(Boolean) as Array<[string, string | number | boolean | null]>;
@@ -549,6 +715,35 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
           unseen_replies: operations.unseenReplies || 0,
           pending_treatments: operations.pendingTreatments || 0,
           assessments_today: operations.assessmentsToday || 0,
+        });
+      } else if (role === 'dpa') {
+        const [dashboardResponse, unreadResponse] = await Promise.all([
+          api.get('/dpa/dashboard'),
+          api.get('/notifications/unread'),
+        ]);
+        const notifications = unreadResponse.data.notifications || [];
+        nextContext = buildFallbackContext('dpa', {
+          total_students: dashboardResponse.data.total_students || 0,
+          priority_monitoring: dashboardResponse.data.priority_monitoring || 0,
+          burnout_tinggi: dashboardResponse.data.burnout_tinggi || 0,
+          happiness_rendah: dashboardResponse.data.happiness_rendah || 0,
+          belum_isi: dashboardResponse.data.belum_isi || 0,
+          warning_count: dashboardResponse.data.warning_count || 0,
+          unread_notifications: notifications.length,
+        });
+      } else if (role === 'staff') {
+        const [reportsResponse, unreadResponse] = await Promise.all([
+          api.get('/staff/bimbingan/reports'),
+          api.get('/notifications/unread'),
+        ]);
+        const reports = reportsResponse.data.reports || [];
+        const notifications = unreadResponse.data.notifications || [];
+        nextContext = buildFallbackContext('staff', {
+          total: reports.length,
+          diproses: reports.filter((item: any) => item.status === 'diproses').length,
+          selesai: reports.filter((item: any) => item.status === 'selesai').length,
+          ditolak: reports.filter((item: any) => item.status === 'ditolak').length,
+          unread_notifications: notifications.length,
         });
       } else {
         const [dashboardResponse, unreadResponse, notificationsResponse] = await Promise.all([
@@ -652,7 +847,7 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
 
   const useAssistantTool = (tool: 'summary' | 'priority' | 'schedule') => {
     if (tool === 'summary') {
-      sendMessage(role === 'admin' ? 'Ringkas kondisi sistem saat ini.' : 'Ringkas kondisi saya saat ini.');
+      sendMessage(role === 'admin' ? 'Ringkas kondisi sistem saat ini.' : role === 'staff' ? 'Ringkas kondisi antrean laporan saat ini.' : 'Ringkas kondisi saya saat ini.');
       return;
     }
     if (tool === 'priority') {
@@ -1105,7 +1300,7 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   {Object.entries(context?.stats || {})
-                    .filter(([key]) => !['role', 'name', 'user_type'].includes(key))
+                    .filter(([key]) => !['role', 'name'].includes(key))
                     .slice(0, 6)
                     .map(([key, value]) => (
                       <div key={key} className="rounded-xl border border-slate-800 bg-slate-900/70 p-4">

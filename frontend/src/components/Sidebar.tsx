@@ -15,6 +15,7 @@ import {
   ShieldAlert,
   Command,
   X,
+  HeartPulse,
 } from 'lucide-react';
 import { useMemo } from 'react';
 import { useTheme } from '../hooks/useTheme';
@@ -26,6 +27,7 @@ const navItems = [
   { label: 'Data Responden', icon: Users, path: '/responden' },
   { label: 'Pusat Risiko', icon: ShieldAlert, path: '/risk-center' },
   { label: 'Analitik & Insight', icon: BarChart2, path: '/analitik' },
+  { label: 'Analitik Well-Being', icon: HeartPulse, path: '/wellbeing-analitik' },
   { label: 'Quantum Cognition', icon: Brain, path: '/quantum' },
   { label: 'Model & Evaluasi', icon: FlaskConical, path: '/model' },
   { label: 'Laporan', icon: FileText, path: '/laporan' },
@@ -97,7 +99,7 @@ export default function Sidebar({
             <div style={{ color: 'var(--theme-text-primary)', fontWeight: 700, fontSize: 14, lineHeight: 1.2 }}>
               QC Analytics
             </div>
-            <div style={{ color: 'var(--theme-text-muted)', fontSize: 10 }}>Quantum Cognition</div>
+            <div style={{ color: 'var(--theme-text-muted)', fontSize: 10 }}>Kesejahteraan Mahasiswa UMCI</div>
           </div>
           <button type="button" className="mobile-sidebar-close" onClick={onClose} aria-label="Tutup menu admin">
             <X size={17} />
@@ -235,8 +237,8 @@ export default function Sidebar({
           Sign Out
         </button>
         <div style={{ color: 'var(--theme-text-muted)', fontSize: 10, textAlign: 'center', marginTop: 10 }}>
-          Sistem Analitik Prediktif Burnout & Risiko Psikosomatis
-          <br />2024 QC Analytics
+          Sistem Analitik Kesejahteraan Mahasiswa UMCI
+          <br />Burnout &amp; Happiness Analytics
         </div>
       </div>
     </aside>

@@ -57,7 +57,6 @@ interface LatestUser {
   nama: string;
   username: string;
   role: string;
-  user_type: string;
   created_at: string;
 }
 
@@ -76,7 +75,6 @@ interface CommandCenterData {
     total_users: number;
     admins: number;
     mahasiswa: number;
-    karyawan: number;
   };
   throughput: {
     assessments_7d: number;
@@ -232,7 +230,7 @@ export default function CommandCenter() {
         <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <StatCard icon={ShieldAlert} label="Risk load" value={data?.headline.risk_load ?? 0} detail={`${data?.headline.crisis_curhats ?? 0} curhat krisis`} tone="text-cyan-200" />
           <StatCard icon={Bell} label="Balasan & notifikasi" value={(data?.headline.unread_replies ?? 0) + (data?.headline.unread_notifications ?? 0)} detail="Butuh dibaca admin" tone="text-amber-200" />
-          <StatCard icon={Users} label="Total pengguna" value={data?.cohorts.total_users ?? 0} detail={`${data?.cohorts.mahasiswa ?? 0} mahasiswa, ${data?.cohorts.karyawan ?? 0} karyawan`} tone="text-emerald-200" />
+          <StatCard icon={Users} label="Total pengguna" value={data?.cohorts.total_users ?? 0} detail={`${data?.cohorts.mahasiswa ?? 0} mahasiswa`} tone="text-emerald-200" />
           <StatCard icon={Activity} label="Aktivitas 24 jam" value={data?.throughput.activity_24h ?? 0} detail={`${data?.throughput.checkins_24h ?? 0} check-in hari ini`} tone="text-violet-200" />
         </section>
 
@@ -373,7 +371,7 @@ export default function CommandCenter() {
                   <div key={user.id} className="flex items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/70 px-3 py-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-white">{user.nama || user.username}</p>
-                      <p className="text-xs text-slate-500">@{user.username} | {user.user_type || user.role}</p>
+                      <p className="text-xs text-slate-500">@{user.username} | {user.role}</p>
                     </div>
                     <span className="text-[11px] text-slate-500">{formatDate(user.created_at)}</span>
                   </div>

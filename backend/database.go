@@ -30,6 +30,16 @@ func ConnectDatabase() {
 	err = database.AutoMigrate(
 		&User{},
 		&Assessment{},
+		&HappinessAssessment{},
+		&DpaNote{},
+		&DpaMessage{},
+		&DpaPoll{},
+		&DpaPollOption{},
+		&DpaPollVote{},
+		&DpaRating{},
+		&DpaReferral{},
+		&Bimbingan{},
+		&BimbinganReport{},
 		&MBTIResult{},
 		&Curhat{},
 		&CurhatReply{},
@@ -57,33 +67,88 @@ func ConnectDatabase() {
 
 	DB = database
 
+	migrateRoles()
 	SeedAdmin()
+	SeedSuperadmin()
+	SeedStaff()
 	NormalizeSystemConfig()
 	backfillLegacyQuantumMetrics()
+}
+
+// migrateRoles mengonversi role lama (admin/user) ke role baru
+// (dpa/student) secara idempoten saat startup.
+func migrateRoles() {
+	if err := DB.Model(&User{}).Where("role = ?", "user").Update("role", RoleStudent).Error; err != nil {
+		log.Println("Migrasi role user->student gagal:", err)
+	}
+	if err := DB.Model(&User{}).Where("role = ?", "admin").Update("role", RoleDPA).Error; err != nil {
+		log.Println("Migrasi role admin->dpa gagal:", err)
+	}
 }
 
 func SeedAdmin() {
 	var admin User
 	if err := DB.Where("username = ?", "admin").First(&admin).Error; err != nil {
-		// Admin not found, let's create one
+		// Admin not found, let's create one as DPA
 		hashedPassword, _ := HashPassword("admin123")
 		newAdmin := User{
 			Username:     "admin",
 			PasswordHash: hashedPassword,
-			Nama:         "Administrator",
-			Role:         "admin",
+			Nama:         "Dosen Pembimbing Akademik",
+			Role:         RoleDPA,
 		}
 		DB.Create(&newAdmin)
-		log.Println("Admin user created successfully (username: admin, password: admin123).")
+		log.Println("DPA user created successfully (username: admin, password: admin123).")
 	} else {
 		// Admin exists, update password and role to ensure it works
 		hashedPassword, _ := HashPassword("admin123")
 		DB.Model(&admin).Updates(map[string]interface{}{
 			"password_hash": hashedPassword,
-			"role":          "admin",
-			"user_type":     "karyawan",
+			"role":          RoleDPA,
 		})
-		log.Println("Admin user updated to ensure login works (username: admin, password: admin123).")
+		log.Println("DPA user updated to ensure login works (username: admin, password: admin123).")
+	}
+}
+
+// SeedSuperadmin membuat akun kaprodi (superadmin) untuk analitik tingkat prodi.
+func SeedSuperadmin() {
+	var kaprodi User
+	if err := DB.Where("username = ?", "kaprodi").First(&kaprodi).Error; err != nil {
+		hashedPassword, _ := HashPassword("kaprodi123")
+		newKaprodi := User{
+			Username:     "kaprodi",
+			PasswordHash: hashedPassword,
+			Nama:         "Ketua Program Studi",
+			Role:         RoleSuperadmin,
+		}
+		DB.Create(&newKaprodi)
+		log.Println("Kaprodi user created successfully (username: kaprodi, password: kaprodi123).")
+	} else {
+		hashedPassword, _ := HashPassword("kaprodi123")
+		DB.Model(&kaprodi).Updates(map[string]interface{}{
+			"password_hash": hashedPassword,
+			"role":          RoleSuperadmin,
+		})
+		log.Println("Kaprodi user updated to ensure login works (username: kaprodi, password: kaprodi123).")
+	}
+}
+
+// SeedStaff membuat akun staf kampus pemroses laporan bimbingan.
+func SeedStaff() {
+	var staff User
+	if err := DB.Where("username = ?", "staff").First(&staff).Error; err != nil {
+		hashedPassword, _ := HashPassword("staff123")
+		newStaff := User{
+			Username:     "staff",
+			PasswordHash: hashedPassword,
+			Nama:         "Staf Kampus",
+			Role:         RoleStaff,
+		}
+		DB.Create(&newStaff)
+		log.Println("Staff user created successfully (username: staff, password: staff123).")
+	} else if !isStaffRole(staff.Role) {
+		DB.Model(&staff).Update("role", RoleStaff)
+		log.Println("Staff user role normalized (username: staff).")
 	}
 }
 

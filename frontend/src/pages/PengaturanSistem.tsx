@@ -5,7 +5,7 @@ import {
   Settings, Save, RotateCcw, CheckCircle2, AlertTriangle,
   SlidersHorizontal, Bell, Brain, Database, Info, Shield,
   HardDrive, Activity, Clock, Cpu, Globe, Server, Layers,
-  Zap, EyeOff
+  Zap, EyeOff, Smile
 } from 'lucide-react';
 import api from '../api';
 import { card, sectionTitle } from './dashboard/styles';
@@ -25,6 +25,14 @@ interface SystemConfig {
   ai_response_enabled: boolean;
   notification_retention: number;
   data_retention_days: number;
+  hi_weight_academic: number;
+  hi_weight_motivation: number;
+  hi_weight_social: number;
+  hi_weight_lecturer: number;
+  hi_weight_environment: number;
+  hi_weight_facilities: number;
+  wellbeing_warn_burnout_rise: number;
+  wellbeing_warn_happiness_drop: number;
 }
 
 interface ActivityLogRow {
@@ -66,11 +74,20 @@ const defaultConfig: SystemConfig = {
   ai_response_enabled: true,
   notification_retention: 30,
   data_retention_days: 365,
+  hi_weight_academic: 0.25,
+  hi_weight_motivation: 0.2,
+  hi_weight_social: 0.2,
+  hi_weight_lecturer: 0.1,
+  hi_weight_environment: 0.15,
+  hi_weight_facilities: 0.1,
+  wellbeing_warn_burnout_rise: 1.0,
+  wellbeing_warn_happiness_drop: 10,
 };
 
 const tabs = [
   { key: 'prediction', label: 'Prediksi & Threshold', icon: SlidersHorizontal, color: '#6c63ff' },
   { key: 'earlywarning', label: 'Early Warning', icon: Bell, color: '#f59e0b' },
+  { key: 'happiness', label: 'Happiness Index', icon: Smile, color: '#fbbf24' },
   { key: 'assessment', label: 'Kuesioner & AI', icon: Brain, color: '#a855f7' },
   { key: 'system', label: 'Sistem & Data', icon: Database, color: '#22c55e' },
   { key: 'audit', label: 'Audit & Health', icon: Shield, color: '#ef4444' },
@@ -211,6 +228,14 @@ export default function PengaturanSistem() {
         ai_response_enabled: d.AIResponseEnabled ?? defaultConfig.ai_response_enabled,
         notification_retention: d.NotificationRetention ?? defaultConfig.notification_retention,
         data_retention_days: d.DataRetentionDays ?? defaultConfig.data_retention_days,
+        hi_weight_academic: d.HiWeightAcademic ?? defaultConfig.hi_weight_academic,
+        hi_weight_motivation: d.HiWeightMotivation ?? defaultConfig.hi_weight_motivation,
+        hi_weight_social: d.HiWeightSocial ?? defaultConfig.hi_weight_social,
+        hi_weight_lecturer: d.HiWeightLecturer ?? defaultConfig.hi_weight_lecturer,
+        hi_weight_environment: d.HiWeightEnvironment ?? defaultConfig.hi_weight_environment,
+        hi_weight_facilities: d.HiWeightFacilities ?? defaultConfig.hi_weight_facilities,
+        wellbeing_warn_burnout_rise: d.WellbeingWarnBurnoutRise ?? defaultConfig.wellbeing_warn_burnout_rise,
+        wellbeing_warn_happiness_drop: d.WellbeingWarnHappinessDrop ?? defaultConfig.wellbeing_warn_happiness_drop,
       };
       setConfig(loaded);
       setOriginalConfig(loaded);
@@ -236,6 +261,14 @@ export default function PengaturanSistem() {
         DataRetentionDays: config.data_retention_days,
         AppName: config.app_name,
         ModelVersion: config.model_version,
+        HiWeightAcademic: config.hi_weight_academic,
+        HiWeightMotivation: config.hi_weight_motivation,
+        HiWeightSocial: config.hi_weight_social,
+        HiWeightLecturer: config.hi_weight_lecturer,
+        HiWeightEnvironment: config.hi_weight_environment,
+        HiWeightFacilities: config.hi_weight_facilities,
+        WellbeingWarnBurnoutRise: config.wellbeing_warn_burnout_rise,
+        WellbeingWarnHappinessDrop: config.wellbeing_warn_happiness_drop,
       });
       setMsg({ type: 'success', text: 'Konfigurasi sistem berhasil disimpan' });
       loadConfig();
@@ -576,6 +609,90 @@ export default function PengaturanSistem() {
                     Ambang terlalu tinggi → <span style={{ color: '#f87171' }}>melewatkan kasus kritis</span>.&nbsp;
                     Rentang optimal: <span style={{ color: '#4ade80', fontWeight: 600 }}>60% — 80%</span>.
                   </p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'happiness' && (
+            <motion.div key="happiness" variants={tabVariants} initial="hidden" animate="visible" exit="exit">
+              <div style={{ ...card, padding: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16, marginBottom: 18 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 9, background: 'rgba(251,191,36,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Smile size={18} color="#fbbf24" />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ ...sectionTitle, margin: 0, fontSize: 14, marginBottom: 4 }}>Bobot Happiness Index</h3>
+                    <p style={{ fontSize: 11, color: '#8890a4', margin: 0 }}>
+                      Bobot tiap dimensi dalam formula HI = (Akademik×w) + (Motivasi×w) + (Sosial×w) + (Lingkungan×w) + (Dosen×w) + (Fasilitas×w).
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(251,191,36,0.08)', padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(251,191,36,0.2)' }}>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: '#fbbf24' }}>
+                      TOTAL {Math.round((config.hi_weight_academic + config.hi_weight_motivation + config.hi_weight_social + config.hi_weight_lecturer + config.hi_weight_environment + config.hi_weight_facilities) * 100)}%
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                  {([
+                    ['hi_weight_academic', 'Akademik', '#fbbf24'],
+                    ['hi_weight_motivation', 'Motivasi', '#f59e0b'],
+                    ['hi_weight_social', 'Sosial', '#3ecfcf'],
+                    ['hi_weight_environment', 'Lingkungan', '#22c55e'],
+                    ['hi_weight_lecturer', 'Dosen', '#a855f7'],
+                    ['hi_weight_facilities', 'Fasilitas', '#6c63ff'],
+                  ] as const).map(([key, label, color]) => (
+                    <div key={key} style={{ marginBottom: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                        <label style={{ ...labelStyle, margin: 0 }}>{label}</label>
+                        <span style={{ fontSize: 11, color, fontWeight: 600, background: 'rgba(251,191,36,0.08)', padding: '2px 8px', borderRadius: 4 }}>
+                          {Math.round(config[key] * 100)}%
+                        </span>
+                      </div>
+                      <input type="range" min={0} max={0.5} step={0.01} value={config[key]}
+                        onChange={e => update(key, Number(e.target.value))}
+                        style={{ width: '100%', accentColor: color }} />
+                    </div>
+                  ))}
+                </div>
+                <p style={helperStyle}>
+                  Total bobot akan dinormalisasi otomatis menjadi 100% oleh sistem. Default: Akademik 25%, Motivasi 20%, Sosial 20%, Lingkungan 15%, Dosen 10%, Fasilitas 10%.
+                </p>
+
+                <div style={{ height: 1, background: '#1e2130', margin: '22px 0' }} />
+
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 }}>
+                    <div style={{ width: 3, height: 16, borderRadius: 2, background: '#fbbf24' }} />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#c0c9e0' }}>Ambang Early Warning Well-Being</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                        <label style={{ ...labelStyle, margin: 0 }}>Kenaikan Burnout Signifikan</label>
+                        <span style={{ fontSize: 11, color: '#fbbf24', fontWeight: 600, background: 'rgba(251,191,36,0.08)', padding: '2px 8px', borderRadius: 4 }}>
+                          +{config.wellbeing_warn_burnout_rise.toFixed(1)} (0-10)
+                        </span>
+                      </div>
+                      <input type="range" min={0.2} max={3} step={0.1} value={config.wellbeing_warn_burnout_rise}
+                        onChange={e => update('wellbeing_warn_burnout_rise', Number(e.target.value))}
+                        style={{ width: '100%', accentColor: '#fbbf24' }} />
+                      <p style={helperStyle}>Warning bila skor burnout naik minimal sebesar nilai ini antar dua asesmen.</p>
+                    </div>
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                        <label style={{ ...labelStyle, margin: 0 }}>Penurunan Happiness Signifikan</label>
+                        <span style={{ fontSize: 11, color: '#fbbf24', fontWeight: 600, background: 'rgba(251,191,36,0.08)', padding: '2px 8px', borderRadius: 4 }}>
+                          −{config.wellbeing_warn_happiness_drop} poin
+                        </span>
+                      </div>
+                      <input type="range" min={5} max={30} step={1} value={config.wellbeing_warn_happiness_drop}
+                        onChange={e => update('wellbeing_warn_happiness_drop', Number(e.target.value))}
+                        style={{ width: '100%', accentColor: '#fbbf24' }} />
+                      <p style={helperStyle}>Warning bila Happiness Index turun minimal sebesar nilai ini. Keduanya terjadi → Prioritas Monitoring Akademik.</p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </motion.div>

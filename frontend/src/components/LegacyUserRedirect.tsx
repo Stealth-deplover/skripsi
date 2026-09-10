@@ -1,4 +1,5 @@
 import { Navigate } from 'react-router-dom';
+import { normalizeRole } from './RequireRole';
 
 export default function LegacyUserRedirect({ to }: { to: string }) {
   const token = localStorage.getItem('token');
@@ -10,6 +11,6 @@ export default function LegacyUserRedirect({ to }: { to: string }) {
   }
 
   if (!token) return <Navigate to="/login" replace />;
-  if (role === 'admin') return <Navigate to="/dashboard" replace />;
+  if (normalizeRole(role) !== 'student') return <Navigate to="/dashboard" replace />;
   return <Navigate to={to} replace />;
 }

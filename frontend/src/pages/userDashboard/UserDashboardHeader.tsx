@@ -4,7 +4,6 @@ import { Activity, Calendar, ShieldCheck, UserRound } from 'lucide-react';
 type StoredUser = {
   nama?: string;
   username?: string;
-  user_type?: string;
   role?: string;
 };
 
@@ -16,8 +15,9 @@ function formatDate(dateString: string) {
   });
 }
 
-function formatUserType(value?: string) {
-  if (!value) return 'Pengguna';
+function formatRole(value?: string) {
+  if (!value) return 'Mahasiswa';
+  if (value === 'student') return 'Mahasiswa';
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
@@ -37,7 +37,7 @@ export default function UserDashboardHeader() {
   }, []);
 
   const displayName = user.nama || user.username || 'Pengguna';
-  const accountType = formatUserType(user.user_type || user.role);
+  const accountType = formatRole(user.role);
 
   return (
     <header className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-2xl shadow-black/20 backdrop-blur">

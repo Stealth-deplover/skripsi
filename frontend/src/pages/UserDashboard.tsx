@@ -3,6 +3,7 @@ import { AlertCircle, ArrowRight, Bell, ClipboardList, HeartPulse, MessageSquare
 import { useNavigate } from 'react-router-dom';
 import UserDashboardHeader from './userDashboard/UserDashboardHeader';
 import UserStatCards, { type Assessment, type Prediction } from './userDashboard/UserStatCards';
+import WellBeingSummaryCards from './userDashboard/WellBeingSummaryCards';
 import PersonalTrendChart from './userDashboard/PersonalTrendChart';
 import DailyQuestionnaire from './userDashboard/DailyQuestionnaire';
 import AnonymousVentingFeed from './userDashboard/AnonymousVentingFeed';
@@ -136,6 +137,8 @@ export default function UserDashboard() {
         )}
 
         <UserStatCards predictions={predictions} assessments={assessments} loading={historyLoading} />
+
+        <WellBeingSummaryCards />
 
         <section className="rounded-2xl border border-white/10 bg-slate-950/70 p-5 shadow-xl shadow-black/10">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">

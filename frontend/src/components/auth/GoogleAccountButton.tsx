@@ -3,13 +3,11 @@ import api from '../../api';
 
 export const GOOGLE_CLIENT_ID = '97194511276-qil720ig60sim9bd5i2lmsihoglpsb13.apps.googleusercontent.com';
 
-type UserType = 'mahasiswa' | 'karyawan';
 
 type AuthUser = {
   username: string;
   nama: string;
   role: string;
-  user_type: UserType;
 };
 
 type AxiosLikeError = {
@@ -24,7 +22,6 @@ type AxiosLikeError = {
 
 interface GoogleAccountButtonInnerProps {
   busy: boolean;
-  userType: UserType;
   label: string;
   onBusyChange: (busy: boolean) => void;
   onError: (message: string) => void;
@@ -72,7 +69,6 @@ function GoogleMark() {
 
 function GoogleAccountButtonInner({
   busy,
-  userType,
   label,
   onBusyChange,
   onError,
@@ -85,7 +81,6 @@ function GoogleAccountButtonInner({
       try {
         const response = await api.post('/google-login', {
           access_token: tokenResponse.access_token,
-          user_type: userType,
         });
         onAuthenticated(response.data.token, response.data.user);
       } catch (error: unknown) {

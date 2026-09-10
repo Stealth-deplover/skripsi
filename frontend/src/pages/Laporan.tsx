@@ -57,12 +57,11 @@ interface Respondent {
   last_activity: string;
 }
 
-interface UserType {
+interface LaporanUser {
   id: number;
   username: string;
   nama: string;
   role: string;
-  user_type?: string;
   created_at: string;
   updated_at: string;
 }
@@ -127,7 +126,7 @@ function SectionCard({ children, className = '' }: { children: React.ReactNode; 
 export default function Laporan() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [respondents, setRespondents] = useState<Respondent[]>([]);
-  const [users, setUsers] = useState<UserType[]>([]);
+  const [users, setUsers] = useState<LaporanUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeReport, setActiveReport] = useState<ReportKey>('burnout');
   const [dateRange, setDateRange] = useState('all');
@@ -228,10 +227,9 @@ export default function Laporan() {
 
   const userSegments = useMemo(() => {
     const admins = users.filter((user) => user.role === 'admin').length;
-    const mahasiswa = users.filter((user) => user.user_type === 'mahasiswa' && user.role !== 'admin').length;
-    const karyawan = users.filter((user) => user.user_type === 'karyawan' && user.role !== 'admin').length;
+    const mahasiswa = users.filter((user) => user.role === 'student').length;
     const regular = users.filter((user) => user.role !== 'admin').length;
-    return { admins, mahasiswa, karyawan, regular };
+    return { admins, mahasiswa, regular };
   }, [users]);
 
   const reportTitle = reportTypes.find((report) => report.key === activeReport)?.label || 'Laporan';
@@ -625,7 +623,6 @@ export default function Laporan() {
               <div className="mt-4 grid grid-cols-2 gap-3">
                 {[
                   ['Mahasiswa', userSegments.mahasiswa, 'text-teal-200 bg-teal-400/10'],
-                  ['Karyawan', userSegments.karyawan, 'text-amber-200 bg-amber-400/10'],
                   ['Admin', userSegments.admins, 'text-violet-200 bg-violet-400/10'],
                   ['Total akun', users.length, 'text-sky-200 bg-sky-400/10'],
                 ].map(([label, value, className]) => (

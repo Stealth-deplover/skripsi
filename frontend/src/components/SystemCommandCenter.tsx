@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import api from '../api';
 
-type Role = 'admin' | 'user';
+type Role = 'admin' | 'dpa' | 'staff' | 'user';
 
 type NotificationItem = {
   ID: number;
@@ -38,7 +38,7 @@ const adminActions = [
   { label: 'Dashboard', path: '/dashboard', keywords: 'ringkasan admin overview', icon: Home },
   { label: 'Command Center', path: '/command-center', keywords: 'pusat komando prioritas', icon: Command },
   { label: 'Pusat Risiko', path: '/risk-center', keywords: 'triage risiko krisis monitoring', icon: ShieldCheck },
-  { label: 'Data Responden', path: '/responden', keywords: 'mahasiswa karyawan responden user', icon: Activity },
+  { label: 'Data Responden', path: '/responden', keywords: 'mahasiswa responden user', icon: Activity },
   { label: 'Laporan', path: '/laporan', keywords: 'export pdf excel dokumen', icon: FileText },
   { label: 'Model Evaluasi', path: '/model', keywords: 'machine learning validasi akurasi', icon: Sparkles },
   { label: 'Pengaturan Sistem', path: '/settings', keywords: 'security konfigurasi dark mode', icon: Lock },
@@ -53,6 +53,21 @@ const userActions = [
   { label: 'Jaringan Teman', path: '/user/network', keywords: 'post teman musik sosial', icon: Activity },
   { label: 'Ruang Film', path: '/user/film', keywords: 'streaming film rekomendasi ai', icon: Sparkles },
   { label: 'Pengaturan Akun', path: '/user/settings', keywords: 'profil password keamanan', icon: Lock },
+];
+
+const dpaActions = [
+  { label: 'Dashboard DPA', path: '/dpa/dashboard', keywords: 'dashboard dpa ringkasan bimbingan', icon: Home },
+  { label: 'Mahasiswa Bimbingan', path: '/dpa/mahasiswa', keywords: 'mahasiswa bimbingan detail catatan', icon: Activity },
+  { label: 'Grup Chat Bimbingan', path: '/dpa/chat', keywords: 'chat grup diskusi pesan', icon: Bot },
+  { label: 'Bimbingan Akademik', path: '/dpa/bimbingan', keywords: 'sesi bimbingan syarat uts uas verifikasi', icon: Sparkles },
+  { label: 'Early Warning', path: '/dpa/warnings', keywords: 'peringatan dini burnout risiko', icon: ShieldCheck },
+  { label: 'Laporan', path: '/dpa/laporan', keywords: 'laporan export pdf dokumen', icon: FileText },
+  { label: 'Profil Saya', path: '/dpa/profil', keywords: 'profil akun dosen keamanan', icon: Lock },
+];
+
+const staffActions = [
+  { label: 'Dashboard Staf', path: '/staff/dashboard', keywords: 'laporan bimbingan antrean uts uas', icon: Home },
+  { label: 'Proses Laporan', path: '/staff/dashboard', keywords: 'proses selesaikan tolak dokumen arsip', icon: FileText },
 ];
 
 function readUser() {
@@ -85,7 +100,7 @@ export default function SystemCommandCenter({
   const [lastIssue, setLastIssue] = useState<ApiIssue | null>(null);
   const user = readUser();
 
-  const actions = role === 'admin' ? adminActions : userActions;
+  const actions = role === 'admin' ? adminActions : role === 'dpa' ? dpaActions : role === 'staff' ? staffActions : userActions;
   const filteredActions = useMemo(() => {
     const term = query.trim().toLowerCase();
     if (!term) return actions;
@@ -187,7 +202,7 @@ export default function SystemCommandCenter({
         <span>{health === 'ok' ? 'Backend aktif' : health === 'down' ? 'Backend tidak terhubung' : 'Cek koneksi'}</span>
         <span className="h-1 w-1 rounded-full bg-slate-700" />
         <ShieldCheck className="h-3.5 w-3.5 text-cyan-300" />
-        <span>{user?.role === 'admin' ? 'Sesi admin' : 'Sesi user'}</span>
+        <span>{user?.role === 'admin' ? 'Sesi admin' : user?.role === 'dpa' ? 'Sesi DPA' : user?.role === 'staff' ? 'Sesi staf' : 'Sesi user'}</span>
       </div>
 
       {lastIssue && (
@@ -303,7 +318,7 @@ export default function SystemCommandCenter({
 
             <div className="flex items-center justify-between border-t border-slate-800 px-4 py-3 text-[11px] text-slate-600">
               <span>Enter untuk buka, Esc untuk tutup</span>
-              <Link to={role === 'admin' ? '/settings' : '/user/settings'} onClick={() => setOpen(false)} className="font-semibold text-slate-400 hover:text-cyan-200">
+              <Link to={role === 'admin' ? '/settings' : role === 'dpa' ? '/dpa/profil' : role === 'staff' ? '/staff/dashboard' : '/user/settings'} onClick={() => setOpen(false)} className="font-semibold text-slate-400 hover:text-cyan-200">
                 Keamanan sesi
               </Link>
             </div>

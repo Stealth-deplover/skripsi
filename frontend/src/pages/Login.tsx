@@ -4,6 +4,7 @@ import { Brain, TrendingUp, RefreshCw, ShieldCheck, Users, Database, BarChart2, 
 import api from '../api';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import GoogleAccountButton, { getAuthErrorMessage, getGoogleOriginNotice } from '../components/auth/GoogleAccountButton';
+import { homePathForRole, normalizeRole } from '../components/RequireRole';
 
 const features = [
   { Icon: Brain, t: 'Quantum Cognition', d: 'Memodelkan ketidakpastian dan pengambilan keputusan manusia secara probabilistik.' },
@@ -26,7 +27,6 @@ export default function Login() {
   const [rem, setRem] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
-  const [userType, setUserType] = useState<'mahasiswa' | 'karyawan'>('mahasiswa');
   const [stats, setStats] = useState(defaultStats);
   const online = useOnlineStatus();
   const googleOriginNotice = getGoogleOriginNotice();
@@ -51,7 +51,7 @@ export default function Login() {
       const r = await api.post('/login', { username: u, password: p });
       localStorage.setItem('token', r.data.token);
       localStorage.setItem('user', JSON.stringify(r.data.user));
-      nav(r.data.user.role === 'admin' ? '/dashboard' : '/user/dashboard');
+      nav(homePathForRole(normalizeRole(r.data.user?.role)));
     } catch (x: unknown) { setErr(getAuthErrorMessage(x, 'Username atau kata sandi salah')); }
     finally { setBusy(false); }
   };
@@ -160,9 +160,9 @@ export default function Login() {
             </div>
 
             <div className="lp-hero">
-              <h2>Sistem Analitik Prediktif</h2>
-              <h2 className="grad">Burnout &amp; Risiko Psikomatis</h2>
-              <h2>Karyawan / Mahasiswa</h2>
+              <h2>Sistem Analitik Kesejahteraan</h2>
+              <h2 className="grad">Burnout &amp; Happiness Mahasiswa</h2>
+              <h2>Universitas Muhammadiyah Cileungsi</h2>
               <p>Menggabungkan metode Quantum Cognition dan Regresi Linier dengan pendekatan Agile Development untuk prediksi yang lebih akurat dan insight yang bermakna.</p>
             </div>
 
@@ -227,26 +227,10 @@ export default function Login() {
 
             <div className="divider"><span>atau masuk dengan</span></div>
 
-            <div className="role-box">
-              <div className="role-title">Pilih jenis akun untuk Google</div>
-              <div className="role-grid">
-                <button type="button" className={`role-btn ${userType === 'mahasiswa' ? 'active' : ''}`} onClick={() => setUserType('mahasiswa')} disabled={busy}>
-                  <strong>Mahasiswa</strong>
-                  <span>Untuk pengguna kampus atau pelajar.</span>
-                </button>
-                <button type="button" className={`role-btn ${userType === 'karyawan' ? 'active' : ''}`} onClick={() => setUserType('karyawan')} disabled={busy}>
-                  <strong>Karyawan</strong>
-                  <span>Untuk pekerja atau staf organisasi.</span>
-                </button>
-              </div>
-              <p className="role-help">Pilihan ini dipakai saat akun Google baru pertama kali dibuat.</p>
-            </div>
-
             <div className="socials">
               <GoogleAccountButton
                 busy={busy}
                 online={online}
-                userType={userType}
                 label="Google"
                 onBusyChange={setBusy}
                 onError={setErr}

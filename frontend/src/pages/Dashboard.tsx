@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, Activity, Flame, RefreshCw, ShieldAlert, Smile } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import DashboardHeader from './dashboard/DashboardHeader';
 import StatCards from './dashboard/StatCards';
 import TrendChart from './dashboard/TrendChart';
@@ -14,6 +15,7 @@ import api from '../api';
 export default function DashboardPage() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [respondents, setRespondents] = useState<any[]>([]);
+  const [happinessOverview, setHappinessOverview] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [dateFilter, setDateFilter] = useState('all');
   const [groupFilter, setGroupFilter] = useState('all');
@@ -28,9 +30,12 @@ export default function DashboardPage() {
         api.get('/admin/analytics'),
         api.get('/responden'),
       ]);
-
       setAnalytics(analyticsRes.data);
       setRespondents(respondentsRes.data.respondents || []);
+      // Happiness overview terpisah; dashboard tetap jalan bila gagal.
+      api.get('/admin/happiness?days=90')
+        .then((res) => setHappinessOverview(res.data.overview ?? null))
+        .catch(() => undefined);
       setLastUpdated(new Date());
     } catch {
       setError('Gagal memuat data dashboard. Pastikan server backend aktif dan akun admin sudah login.');
@@ -54,7 +59,7 @@ export default function DashboardPage() {
   const filteredRespondents = useMemo(() => {
     if (groupFilter === 'all') return respondents;
     return respondents.filter((respondent: any) => {
-      const group = respondent.user_type || (respondent.id % 2 === 0 ? 'mahasiswa' : 'karyawan');
+      const group = 'mahasiswa';
       return group === groupFilter;
     });
   }, [respondents, groupFilter]);
@@ -89,6 +94,37 @@ export default function DashboardPage() {
         )}
 
         <StatCards data={analytics} loading={loading} />
+
+        {happinessOverview && (
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {[
+              { label: 'Average Happiness', value: `${happinessOverview.avg_happiness?.toFixed(0) ?? '-'}/100`, icon: Smile, tone: 'text-amber-100 bg-amber-500/10' },
+              { label: 'Avg Burnout', value: `${happinessOverview.avg_burnout?.toFixed(1) ?? '-'}/10`, icon: Flame, tone: 'text-indigo-100 bg-indigo-500/10' },
+              { label: 'Happiness Rendah', value: happinessOverview.happiness_rendah ?? 0, icon: Activity, tone: 'text-orange-100 bg-orange-500/10' },
+              { label: 'Prioritas Monitoring', value: happinessOverview.priority_monitoring ?? 0, icon: ShieldAlert, tone: 'text-rose-100 bg-rose-500/10' },
+            ].map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.label} className="rounded-lg border border-white/10 bg-slate-950 p-4 shadow-xl shadow-black/10">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-[0.14em] text-slate-500">{item.label}</p>
+                      <p className="mt-2 text-2xl font-semibold text-white">{item.value}</p>
+                    </div>
+                    <span className={`flex h-10 w-10 items-center justify-center rounded-md ${item.tone}`}>
+                      <Icon className="h-4.5 w-4.5" />
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="sm:col-span-2 xl:col-span-4 text-right">
+              <Link to="/wellbeing-analitik" className="text-xs font-semibold text-amber-200 hover:text-amber-100">
+                Buka Analitik Well-Being lengkap →
+              </Link>
+            </div>
+          </section>
+        )}
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_330px]">
           <div className="flex min-w-0 flex-col gap-5">

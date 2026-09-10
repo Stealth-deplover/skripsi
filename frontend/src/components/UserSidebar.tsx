@@ -6,7 +6,6 @@ import {
   Activity,
   User,
   Users,
-  Settings,
   LogOut,
   Sun,
   Moon,
@@ -15,22 +14,79 @@ import {
   Bot,
   Clapperboard,
   HeartPulse,
+  Flame,
+  Smile,
+  TrendingUp,
+  Sparkles,
+  GraduationCap,
+  NotebookPen,
+  History,
+  FileBarChart,
   X,
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import api from '../api';
 import { useTheme } from '../hooks/useTheme';
 
-const navItems = [
-  { label: 'Overview', icon: LayoutDashboard, path: '/user/dashboard' },
-  { label: 'Kuisioner Harian', icon: ClipboardList, path: '/user/kuisioner' },
-  { label: 'Ruang Curhat Anonim', icon: MessageSquareHeart, path: '/user/curhat', badge: true },
-  { label: 'Recovery Plan', icon: HeartPulse, path: '/user/recovery' },
-  { label: 'Riwayat Asesmen', icon: Activity, path: '/user/asesmen' },
-  { label: 'Jaringan Teman', icon: Users, path: '/user/network' },
-  { label: 'Ruang Film', icon: Clapperboard, path: '/user/film' },
-  { label: 'Pengaturan Akun', icon: Settings, path: '/user/settings' },
+type NavItem = {
+  label: string;
+  icon: typeof Flame;
+  path: string;
+  badge?: boolean;
+};
+
+type NavGroup = {
+  title: string | null;
+  items: NavItem[];
+};
+
+const navGroups: NavGroup[] = [
+  {
+    title: null,
+    items: [
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/user/dashboard' },
+      { label: 'Profil Saya', icon: User, path: '/user/settings' },
+    ],
+  },
+  {
+    title: 'Burnout',
+    items: [
+      { label: 'Assessment Burnout', icon: Flame, path: '/user/kuisioner' },
+      { label: 'Hasil Burnout', icon: Activity, path: '/user/burnout/hasil' },
+      { label: 'Riwayat & Trend Burnout', icon: History, path: '/user/asesmen' },
+    ],
+  },
+  {
+    title: 'Happiness',
+    items: [
+      { label: 'Assessment Happiness', icon: Smile, path: '/user/happiness/assessment' },
+      { label: 'Happiness Index', icon: HeartPulse, path: '/user/happiness/index' },
+      { label: 'Riwayat & Trend Happiness', icon: FileBarChart, path: '/user/happiness/history' },
+    ],
+  },
+  {
+    title: 'Well-Being',
+    items: [
+      { label: 'Burnout vs Happiness', icon: TrendingUp, path: '/user/well-being' },
+      { label: 'Faktor Kondisi', icon: ClipboardList, path: '/user/faktor' },
+      { label: 'Rekomendasi', icon: Sparkles, path: '/user/rekomendasi' },
+      { label: 'DPA Saya', icon: GraduationCap, path: '/user/dpa' },
+      { label: 'Grup Bimbingan', icon: Users, path: '/user/grup-bimbingan' },
+      { label: 'Bimbingan Akademik', icon: NotebookPen, path: '/user/bimbingan' },
+    ],
+  },
+  {
+    title: 'Lainnya',
+    items: [
+      { label: 'Ruang Curhat Anonim', icon: MessageSquareHeart, path: '/user/curhat', badge: true },
+      { label: 'Recovery Plan', icon: HeartPulse, path: '/user/recovery' },
+      { label: 'Jaringan Teman', icon: Users, path: '/user/network' },
+      { label: 'Ruang Film', icon: Clapperboard, path: '/user/film' },
+    ],
+  },
 ];
+
+const allNavItems = navGroups.flatMap((group) => group.items);
 
 export default function UserSidebar({
   open = false,
@@ -121,43 +177,62 @@ export default function UserSidebar({
 
       {/* Nav */}
       <nav style={{ flex: 1, overflowY: 'auto', padding: '12px 10px' }}>
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const active = location.pathname === item.path;
-          return (
-            <Link
-              key={item.path}
-              to={item.path}
-              onClick={onClose}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                padding: '9px 12px',
-                borderRadius: 8,
-                marginBottom: 2,
-                background: active ? 'var(--theme-nav-active-bg)' : 'transparent',
-                color: active ? '#4ade80' : 'var(--theme-text-muted)',
-                fontSize: 13,
-                fontWeight: active ? 600 : 400,
-                textDecoration: 'none',
-                transition: 'all 0.15s',
-              }}
-            >
-              <Icon size={16} />
-              {item.label}
-              {(item as any).badge && unreadCount > 0 && (
-                <span style={{
-                  marginLeft: 'auto', background: '#ef4444', color: '#fff',
-                  borderRadius: '50%', minWidth: 18, height: 18, display: 'flex',
-                  alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
-                }}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </Link>
-          );
-        })}
+        {navGroups.map((group, groupIndex) => (
+          <div key={group.title ?? `group-${groupIndex}`} style={{ marginBottom: group.title ? 8 : 0 }}>
+            {group.title && (
+              <div
+                style={{
+                  padding: '10px 12px 4px',
+                  fontSize: 9.5,
+                  fontWeight: 700,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  color: 'var(--theme-text-muted)',
+                  opacity: 0.75,
+                }}
+              >
+                {group.title}
+              </div>
+            )}
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              const active = location.pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  onClick={onClose}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    marginBottom: 2,
+                    background: active ? 'var(--theme-nav-active-bg)' : 'transparent',
+                    color: active ? '#4ade80' : 'var(--theme-text-muted)',
+                    fontSize: 12.5,
+                    fontWeight: active ? 600 : 400,
+                    textDecoration: 'none',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Icon size={15} />
+                  {item.label}
+                  {item.badge && unreadCount > 0 && (
+                    <span style={{
+                      marginLeft: 'auto', background: '#ef4444', color: '#fff',
+                      borderRadius: '50%', minWidth: 18, height: 18, display: 'flex',
+                      alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
+                    }}>
+                      {unreadCount > 9 ? '9+' : unreadCount}
+                    </span>
+                  )}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
         <button
           onClick={onOpenAssistant}
           style={{

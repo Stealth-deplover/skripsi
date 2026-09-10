@@ -35,7 +35,7 @@ interface WarningItem {
 }
 
 interface CaseSummary {
-  user?: { id: number; nama: string; username: string; user_type: string };
+  user?: { id: number; nama: string; username: string };
   risk_level: string;
   summary: string;
   key_factors: string[];

@@ -25,6 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 import api from '../api';
+import { normalizeRole } from '../components/RequireRole';
 
 interface PublicOverview {
   total_users: number;
@@ -35,7 +36,7 @@ interface PublicOverview {
   active_model: string;
 }
 
-type DemoMode = 'Mahasiswa' | 'Karyawan' | 'Admin';
+type DemoMode = 'Mahasiswa' | 'DPA' | 'Kaprodi';
 
 const demoModes: Record<
   DemoMode,
@@ -65,22 +66,22 @@ const demoModes: Record<
     ],
     points: [12, 24, 18, 36, 42, 58, 54, 66, 49, 74, 82, 91],
   },
-  Karyawan: {
+  DPA: {
     score: 82,
     risk: 'Tinggi',
-    category: 'Workload fatigue',
+    category: 'Prioritas monitoring',
     trend: '+12% dari kemarin',
-    headline: 'Tekanan kerja berubah jadi prioritas',
-    body: 'Dashboard membaca beban kerja, psikosomatis, dan tindak lanjut terapi supaya HR atau admin tahu mana yang perlu dibantu dulu.',
+    headline: 'Mahasiswa yang perlu diperhatikan naik prioritas',
+    body: 'DPA melihat burnout dan Happiness Index tiap mahasiswa bimbingan, lengkap dengan early warning dan catatan monitoring akademik.',
     indicators: [
-      { label: 'Beban Kerja', value: 84, status: 'Tinggi' },
-      { label: 'Energi', value: 41, status: 'Turun' },
-      { label: 'Fokus', value: 58, status: 'Sedang' },
-      { label: 'Pemulihan', value: 37, status: 'Rendah' },
+      { label: 'Burnout Tinggi', value: 84, status: 'Tinggi' },
+      { label: 'Happiness Rendah', value: 41, status: 'Turun' },
+      { label: 'Bimbingan Aktif', value: 58, status: 'Sedang' },
+      { label: 'Warning Baru', value: 37, status: 'Rendah' },
     ],
     points: [18, 22, 31, 39, 35, 52, 58, 61, 47, 72, 79, 88],
   },
-  Admin: {
+  Kaprodi: {
     score: 64,
     risk: 'Sedang',
     category: 'Operational watch',
@@ -129,8 +130,8 @@ const platformFlow = [
 
 const audiences = [
   ['Mahasiswa', 'Mendeteksi kelelahan akademik sebelum tugas, organisasi, dan tekanan sosial menumpuk.'],
-  ['Karyawan', 'Membaca tekanan kerja, energi, fokus, dan kebutuhan pemulihan secara lebih terstruktur.'],
-  ['Admin', 'Melihat responden prioritas, balasan terapi, performa model, dan laporan dari satu command center.'],
+  ['DPA', 'Memantau burnout dan kebahagiaan mahasiswa bimbingan, lengkap dengan early warning dan catatan monitoring.'],
+  ['Kaprodi', 'Mengelola akun dan melihat analytics burnout vs happiness tingkat program studi dari satu tempat.'],
 ];
 
 const faqs = [
@@ -144,7 +145,9 @@ function readSessionTarget() {
     const token = localStorage.getItem('token');
     const role = JSON.parse(localStorage.getItem('user') || '{}')?.role;
     if (!token) return '/register';
-    if (role === 'admin') return '/dashboard';
+    const normalized = normalizeRole(role);
+    if (normalized === 'superadmin') return '/dashboard';
+    if (normalized === 'dpa') return '/dpa/dashboard';
     return '/user/kuisioner';
   } catch {
     return '/register';
@@ -177,7 +180,7 @@ function MiniTrend({ points }: { points: number[] }) {
 
 export default function Home() {
   const [overview, setOverview] = useState<PublicOverview | null>(null);
-  const [activeMode, setActiveMode] = useState<DemoMode>('Karyawan');
+  const [activeMode, setActiveMode] = useState<DemoMode>('Mahasiswa');
   const active = demoModes[activeMode];
   const primaryTarget = readSessionTarget();
 

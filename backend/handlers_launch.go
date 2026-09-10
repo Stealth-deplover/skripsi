@@ -112,7 +112,7 @@ func AdminLaunchReadinessHandler(c *gin.Context) {
 	var logs24h int64
 	var activity7d int64
 	DB.Model(&User{}).Count(&users)
-	DB.Model(&User{}).Where("role = ?", "admin").Count(&admins)
+	DB.Model(&User{}).Where("role = ?", RoleSuperadmin).Count(&admins)
 	DB.Model(&Assessment{}).Count(&assessments)
 	DB.Model(&Prediction{}).Count(&predictions)
 	DB.Model(&Curhat{}).Count(&curhats)

@@ -176,11 +176,10 @@ func buildCurhatSystemContext(user User) string {
 			"nama":      user.Nama,
 			"username":  user.Username,
 			"role":      user.Role,
-			"user_type": user.UserType,
 			"bio":       truncateString(user.Bio, 260),
 		},
 	}
-	agentEvidence := []string{fmt.Sprintf("User teridentifikasi sebagai %s dengan role %s.", firstNonEmpty(user.UserType, "user"), firstNonEmpty(user.Role, "user"))}
+	agentEvidence := []string{fmt.Sprintf("User teridentifikasi dengan role %s.", firstNonEmpty(user.Role, "user"))}
 	agentActions := []string{}
 	agentPriority := "normal"
 	agentDataQuality := "cukup"
@@ -542,7 +541,7 @@ func notifyAdminsForCurhatAnalysis(user User, curhat Curhat, analysis CurhatClin
 		return
 	}
 	var admins []User
-	DB.Where("role = ?", "admin").Find(&admins)
+	DB.Where("role = ?", RoleSuperadmin).Find(&admins)
 	for _, admin := range admins {
 		DB.Create(&Notification{
 			UserID:  admin.ID,

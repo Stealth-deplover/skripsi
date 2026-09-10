@@ -39,7 +39,6 @@ export default function Register() {
   const [confirm,     setConfirm]    = useState('');
   const [showPw,      setShowPw]     = useState(false);
   const [showCf,      setShowCf]     = useState(false);
-  const [userType,    setUserType]   = useState<'mahasiswa' | 'karyawan'>('mahasiswa');
   const [err,         setErr]        = useState('');
   const [success,     setSuccess]    = useState('');
   const [busy,        setBusy]       = useState(false);
@@ -74,7 +73,7 @@ export default function Register() {
 
     setBusy(true);
     try {
-      await api.post('/register', { username: cleanUsername, password, nama: cleanNama, user_type: userType });
+      await api.post('/register', { username: cleanUsername, password, nama: cleanNama });
       setSuccess('Akun berhasil dibuat! Mengarahkan ke halaman masuk...');
       setTimeout(() => nav('/login'), 1500);
     } catch (x: unknown) {
@@ -226,20 +225,6 @@ export default function Register() {
             {success && <div className="ok-box">{success}</div>}
 
             <form onSubmit={submit}>
-              <div className="role-box">
-                <div className="role-title">Daftar sebagai</div>
-                <div className="role-grid">
-                  <button type="button" className={`role-btn ${userType === 'mahasiswa' ? 'active' : ''}`} onClick={() => setUserType('mahasiswa')} disabled={busy}>
-                    <strong>Mahasiswa</strong>
-                    <span>Akun untuk pelajar atau pengguna kampus.</span>
-                  </button>
-                  <button type="button" className={`role-btn ${userType === 'karyawan' ? 'active' : ''}`} onClick={() => setUserType('karyawan')} disabled={busy}>
-                    <strong>Karyawan</strong>
-                    <span>Akun untuk pekerja atau staf organisasi.</span>
-                  </button>
-                </div>
-              </div>
-
               {/* Nama Lengkap */}
               <div className="field">
                 <label>Nama Lengkap</label>
@@ -329,7 +314,6 @@ export default function Register() {
               <GoogleAccountButton
                 busy={busy}
                 online={online}
-                userType={userType}
                 label="Daftar dengan Google"
                 onBusyChange={setBusy}
                 onError={setErr}

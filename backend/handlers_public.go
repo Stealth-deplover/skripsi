@@ -35,7 +35,7 @@ func PublicOverviewHandler(c *gin.Context) {
 	var totalPosts int64
 	var totalCurhats int64
 
-	DB.Model(&User{}).Where("role != ?", "admin").Count(&totalUsers)
+	DB.Model(&User{}).Where("role = ?", RoleStudent).Count(&totalUsers)
 	DB.Model(&Assessment{}).Count(&totalAssessments)
 	DB.Model(&Prediction{}).Count(&totalPredictions)
 	DB.Model(&Post{}).Count(&totalPosts)

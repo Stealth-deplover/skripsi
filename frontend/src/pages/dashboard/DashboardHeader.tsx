@@ -14,7 +14,6 @@ const datePeriods = [
 const groupOptions = [
   { label: 'Semua Kelompok', value: 'all' },
   { label: 'Mahasiswa', value: 'mahasiswa' },
-  { label: 'Karyawan', value: 'karyawan' },
 ];
 
 interface Props {

@@ -48,19 +48,6 @@ func checkAuthRateLimit(c *gin.Context, scope string, identity string, limit int
 	return true
 }
 
-func normalizeUserType(value string) string {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	if normalized == "karyawan" {
-		return "karyawan"
-	}
-	return "mahasiswa"
-}
-
-func isValidUserType(value string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(value))
-	return normalized == "mahasiswa" || normalized == "karyawan"
-}
-
 func validateUsername(username string) string {
 	if len(username) < 3 || len(username) > 80 {
 		return "Username minimal 3 karakter dan maksimal 80 karakter"
@@ -136,17 +123,15 @@ func RegisterHandler(c *gin.Context) {
 		Username string `json:"username" binding:"required"`
 		Password string `json:"password" binding:"required"`
 		Nama     string `json:"nama" binding:"required"`
-		UserType string `json:"user_type" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Lengkapi username, nama lengkap, jenis akun, dan kata sandi"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Lengkapi username, nama lengkap, dan kata sandi"})
 		return
 	}
 	if !checkAuthRateLimit(c, "register", input.Username, 5) {
 		return
 	}
 
-	rawUserType := input.UserType
 	input.Username = strings.ToLower(strings.TrimSpace(input.Username))
 	input.Nama = strings.TrimSpace(input.Nama)
 
@@ -158,11 +143,6 @@ func RegisterHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": message})
 		return
 	}
-	if !isValidUserType(rawUserType) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Pilih jenis pengguna mahasiswa atau karyawan"})
-		return
-	}
-	input.UserType = normalizeUserType(rawUserType)
 	if message := validatePassword(input.Password); message != "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": message})
 		return
@@ -175,10 +155,10 @@ func RegisterHandler(c *gin.Context) {
 		return
 	}
 
-	hashedPassword, _ := HashPassword(input.Password)
-	user := User{Username: input.Username, PasswordHash: hashedPassword, Nama: input.Nama, UserType: input.UserType}
+		hashedPassword, _ := HashPassword(input.Password)
+	user := User{Username: input.Username, PasswordHash: hashedPassword, Nama: input.Nama, Role: RoleStudent}
 	DB.Create(&user)
-	recordActivity(c, &user, "auth_register", "user", fmt.Sprintf("%d", user.ID), gin.H{"user_type": user.UserType})
+	recordActivity(c, &user, "auth_register", "user", fmt.Sprintf("%d", user.ID), nil)
 
 	c.JSON(http.StatusOK, gin.H{"message": "User registered successfully"})
 }
@@ -215,13 +195,12 @@ func LoginHandler(c *gin.Context) {
 	}
 
 	recordActivity(c, &user, "auth_login", "user", fmt.Sprintf("%d", user.ID), gin.H{"method": "password"})
-	c.JSON(http.StatusOK, gin.H{"token": token, "user": gin.H{"username": user.Username, "nama": user.Nama, "role": user.Role, "user_type": normalizeUserType(user.UserType)}})
+	c.JSON(http.StatusOK, gin.H{"token": token, "user": gin.H{"username": user.Username, "nama": user.Nama, "role": user.Role}})
 }
 
 func GoogleLoginHandler(c *gin.Context) {
 	var input struct {
 		AccessToken string `json:"access_token" binding:"required"`
-		UserType    string `json:"user_type"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Access token is required"})
@@ -260,16 +239,9 @@ func GoogleLoginHandler(c *gin.Context) {
 
 	var user User
 	if err := DB.Where("username = ?", googleUser.Email).First(&user).Error; err != nil {
-		if !isValidUserType(input.UserType) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Pilih mahasiswa atau karyawan sebelum login Google"})
-			return
-		}
 		// Create user if not exists
-		user = User{Username: googleUser.Email, Nama: googleUser.Name, PasswordHash: "google-oauth-dummy", Role: "user", UserType: normalizeUserType(input.UserType)}
+		user = User{Username: googleUser.Email, Nama: googleUser.Name, PasswordHash: "google-oauth-dummy", Role: RoleStudent}
 		DB.Create(&user)
-	} else if user.UserType == "" && isValidUserType(input.UserType) {
-		user.UserType = normalizeUserType(input.UserType)
-		DB.Save(&user)
 	}
 
 	token, err := GenerateJWT(user.Username)
@@ -279,18 +251,17 @@ func GoogleLoginHandler(c *gin.Context) {
 	}
 
 	recordActivity(c, &user, "auth_login", "user", fmt.Sprintf("%d", user.ID), gin.H{"method": "google"})
-	c.JSON(http.StatusOK, gin.H{"token": token, "user": gin.H{"username": user.Username, "nama": user.Nama, "role": user.Role, "user_type": normalizeUserType(user.UserType)}})
+	c.JSON(http.StatusOK, gin.H{"token": token, "user": gin.H{"username": user.Username, "nama": user.Nama, "role": user.Role}})
 }
 
 func ForgotPasswordHandler(c *gin.Context) {
 	var input struct {
 		Username    string `json:"username" binding:"required"`
 		Nama        string `json:"nama" binding:"required"`
-		UserType    string `json:"user_type" binding:"required"`
 		NewPassword string `json:"new_password" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Lengkapi username, nama lengkap, jenis akun, dan kata sandi baru"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Lengkapi username, nama lengkap, dan kata sandi baru"})
 		return
 	}
 	if !checkAuthRateLimit(c, "forgot", input.Username, 5) {
@@ -307,10 +278,6 @@ func ForgotPasswordHandler(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Nama lengkap minimal 3 karakter"})
 		return
 	}
-	if !isValidUserType(input.UserType) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Pilih jenis akun mahasiswa atau karyawan"})
-		return
-	}
 	if message := validatePassword(input.NewPassword); message != "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": message})
 		return
@@ -318,10 +285,6 @@ func ForgotPasswordHandler(c *gin.Context) {
 
 	var user User
 	if err := DB.Where("username = ? AND nama = ?", input.Username, input.Nama).First(&user).Error; err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "Data verifikasi tidak cocok"})
-		return
-	}
-	if normalizeUserType(user.UserType) != normalizeUserType(input.UserType) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "Data verifikasi tidak cocok"})
 		return
 	}
@@ -336,6 +299,6 @@ func ForgotPasswordHandler(c *gin.Context) {
 		return
 	}
 
-	recordActivity(c, &user, "auth_password_reset", "user", fmt.Sprintf("%d", user.ID), gin.H{"user_type": normalizeUserType(user.UserType)})
+	recordActivity(c, &user, "auth_password_reset", "user", fmt.Sprintf("%d", user.ID), nil)
 	c.JSON(http.StatusOK, gin.H{"message": "Kata sandi berhasil direset. Silakan masuk dengan kata sandi baru."})
 }

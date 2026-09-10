@@ -13,7 +13,6 @@ function toWeeklyData(data: any[]) {
       date: slice.length > 1 ? `${slice[0].date}-${slice[slice.length - 1].date}` : slice[0]?.date,
       semua: Number(avg('semua').toFixed(1)),
       mahasiswa: Number(avg('mahasiswa').toFixed(1)),
-      karyawan: Number(avg('karyawan').toFixed(1)),
     });
   }
   return grouped;
@@ -58,7 +57,6 @@ export default function TrendChart({ data, loading }: { data: any[]; loading: bo
         {[
           ['Semua', 'bg-violet-300'],
           ['Mahasiswa', 'bg-emerald-300'],
-          ['Karyawan', 'bg-amber-300'],
         ].map(([label, color]) => (
           <span key={label} className="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">
             <span className={`h-2 w-2 shrink-0 rounded-full ${color}`} />
@@ -92,7 +90,6 @@ export default function TrendChart({ data, loading }: { data: any[]; loading: bo
             <Tooltip contentStyle={tooltipStyle} />
             <Line type="monotone" dataKey="semua" stroke="#a78bfa" strokeWidth={2.5} dot={{ r: 3 }} name="Semua" />
             <Line type="monotone" dataKey="mahasiswa" stroke="#34d399" strokeWidth={2.5} dot={false} name="Mahasiswa" />
-            <Line type="monotone" dataKey="karyawan" stroke="#fbbf24" strokeWidth={2.5} dot={false} name="Karyawan" />
           </LineChart>
         </ChartShell>
       )}

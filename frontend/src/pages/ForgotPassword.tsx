@@ -33,7 +33,6 @@ export default function ForgotPassword() {
   const nav = useNavigate();
   const [username,    setUsername]   = useState('');
   const [nama,        setNama]       = useState('');
-  const [userType,    setUserType]   = useState<'mahasiswa' | 'karyawan'>('mahasiswa');
   const [password,    setPassword]   = useState('');
   const [confirm,     setConfirm]    = useState('');
   const [showPw,      setShowPw]     = useState(false);
@@ -73,7 +72,6 @@ export default function ForgotPassword() {
       const r = await api.post('/forgot-password', {
         username: cleanUsername,
         nama: cleanNama,
-        user_type: userType,
         new_password: password,
       });
       setSuccess(r.data.message || 'Kata sandi berhasil direset! Mengarahkan ke halaman masuk...');
@@ -210,24 +208,10 @@ export default function ForgotPassword() {
             {err     && <div className="err-box">{err}</div>}
             {success && <div className="ok-box">{success}</div>}
             <div className="secure-note">
-              Untuk keamanan, reset hanya berhasil jika username, nama lengkap, dan jenis akun cocok dengan data terdaftar.
+              Untuk keamanan, reset hanya berhasil jika username dan nama lengkap cocok dengan data terdaftar.
             </div>
 
             <form onSubmit={submit}>
-              <div className="role-box">
-                <div className="role-title">Jenis akun</div>
-                <div className="role-grid">
-                  <button type="button" className={`role-btn ${userType === 'mahasiswa' ? 'active' : ''}`} onClick={() => setUserType('mahasiswa')} disabled={busy}>
-                    <strong>Mahasiswa</strong>
-                    <span>Akun pelajar atau pengguna kampus.</span>
-                  </button>
-                  <button type="button" className={`role-btn ${userType === 'karyawan' ? 'active' : ''}`} onClick={() => setUserType('karyawan')} disabled={busy}>
-                    <strong>Karyawan</strong>
-                    <span>Akun pekerja atau staf organisasi.</span>
-                  </button>
-                </div>
-              </div>
-
               {/* Username */}
               <div className="field">
                 <label>Username Anda</label>

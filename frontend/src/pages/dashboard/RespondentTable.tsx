@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Eye, Search, Users } from 'lucide-react';
 
-const tabs = ['Semua', 'Mahasiswa', 'Karyawan'];
+const tabs = ['Semua', 'Mahasiswa'];
 
 const getLevel = (level: string) => {
   switch (level?.toLowerCase()) {
@@ -62,11 +62,10 @@ export default function RespondentTable({ data, loading }: { data: any[]; loadin
     return (data || [])
       .map((row) => ({
         ...row,
-        kelompok: row.user_type === 'karyawan' ? 'Karyawan' : 'Mahasiswa',
+        kelompok: 'Mahasiswa',
       }))
       .filter((row) => {
         if (activeTab === 1 && row.kelompok !== 'Mahasiswa') return false;
-        if (activeTab === 2 && row.kelompok !== 'Karyawan') return false;
         if (!keyword) return true;
         return `${row.nama || ''} ${row.username || ''} ${row.id} ${row.kelompok}`.toLowerCase().includes(keyword);
       });

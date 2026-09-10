@@ -161,7 +161,7 @@ export default function UserAsesmenHistory() {
 
       setPredictions(sortedPredictions);
       setAssessments(sortedAssessments);
-      setSelectedId(sortedPredictions.at(-1)?.ID || null);
+      setSelectedId(sortedPredictions[sortedPredictions.length - 1]?.ID || null);
     } catch (error) {
       console.error('Failed to fetch history', error);
     } finally {
@@ -192,12 +192,12 @@ export default function UserAsesmenHistory() {
   }, [query, rangedPredictions, riskFilter]);
 
   const selectedPrediction = useMemo(() => {
-    return predictions.find((item) => item.ID === selectedId) || predictions.at(-1) || null;
+    return predictions.find((item) => item.ID === selectedId) || predictions[predictions.length - 1] || null;
   }, [predictions, selectedId]);
 
-  const latestAssessment = assessments.at(-1);
-  const latestPrediction = predictions.at(-1);
-  const previousPrediction = predictions.at(-2);
+  const latestAssessment = assessments[assessments.length - 1];
+  const latestPrediction = predictions[predictions.length - 1];
+  const previousPrediction = predictions[predictions.length - 2];
   const latestMeta = getRiskMeta(latestPrediction?.RiskLevel);
   const LatestRiskIcon = latestMeta.icon;
 
