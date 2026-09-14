@@ -114,6 +114,7 @@ interface LaunchReadiness {
 interface DpaReview {
   stars: number;
   comment: string;
+  sentiment: string;
   created_at: string;
   label: string;
 }
@@ -127,6 +128,7 @@ interface DpaRatingRow {
   average_stars: number;
   response_rate: number;
   distribution: Record<string, number>;
+  sentiment_counts: Record<string, number>;
   recommendation: { label: string; detail: string; priority: string; tone: string };
   recent_reviews: DpaReview[];
   follow_up: { id: number; note: string; status: string; updated_at: string } | null;
@@ -138,6 +140,26 @@ interface DpaRatingsData {
   semester_trend: { semester: string; average_stars: number; count: number }[];
   summary: { total_dpa: number; total_advisees: number; total_rated: number; overall_avg: number };
   privacy_note: string;
+}
+
+interface TherapyEff {
+  by_category: { Category: string; AvgScore: number; Count: number }[];
+  overall_avg: number;
+  pending: number;
+  completed: number;
+}
+
+interface ReminderRow {
+  student_id: number;
+  nama: string;
+  username: string;
+  prodi: string;
+  dpa_name: string;
+  verified_uts: number;
+  verified_uas: number;
+  need_uts: number;
+  need_uas: number;
+  semester: string;
 }
 
 interface HeatmapRow {
@@ -198,6 +220,9 @@ export default function CommandCenter() {
   const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
   const [heatmapLoading, setHeatmapLoading] = useState(true);
   const [heatmapError, setHeatmapError] = useState('');
+  const [therapyEff, setTherapyEff] = useState<TherapyEff | null>(null);
+  const [reminders, setReminders] = useState<ReminderRow[]>([]);
+  const [reminderSem, setReminderSem] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -264,10 +289,42 @@ export default function CommandCenter() {
     }
   };
 
+  const loadTherapyEff = async () => {
+    try {
+      const res = await api.get('/superadmin/therapy/effectiveness');
+      setTherapyEff(res.data);
+    } catch {}
+  };
+
+  const loadReminders = async () => {
+    try {
+      const res = await api.get('/superadmin/reminders/bimbingan');
+      setReminders(res.data.reminders || []);
+      setReminderSem(res.data.semester || '');
+    } catch {}
+  };
+
+  const exportDpaRating = async () => {
+    try {
+      const res = await api.get('/superadmin/export/dpa-ratings', { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `laporan-rating-dpa-${new Date().toISOString().slice(0,10)}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Gagal export');
+    }
+  };
+
   useEffect(() => {
     load();
     loadDpaRatings();
     loadHeatmap();
+    loadTherapyEff();
+    loadReminders();
   }, []);
 
   const riskPressure = useMemo(() => {
@@ -477,6 +534,12 @@ export default function CommandCenter() {
                       })}
                     </div>
 
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">Positif {row.sentiment_counts?.positif || 0}</span>
+                      <span className="rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300">Netral {row.sentiment_counts?.netral || 0}</span>
+                      <span className="rounded-full border border-rose-400/20 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-200">Negatif {row.sentiment_counts?.negatif || 0}</span>
+                    </div>
+
                     <div className={`mt-3 rounded-lg border px-3 py-2 ${toneClass}`}>
                       <p className="text-xs font-semibold">{row.recommendation?.label}</p>
                       <p className="mt-1 text-xs leading-5 opacity-80">{row.recommendation?.detail}</p>
@@ -498,8 +561,11 @@ export default function CommandCenter() {
                             <div key={idx} className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
                               <div className="flex items-center justify-between gap-2">
                                 <span className="text-xs font-semibold text-amber-200">{rv.label}</span>
-                                <span className="inline-flex items-center gap-1 text-xs text-amber-300">
-                                  <Star className="h-3 w-3 fill-amber-300 text-amber-300" /> {rv.stars}
+                                <span className="flex items-center gap-1.5">
+                                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${rv.sentiment === 'positif' ? 'bg-emerald-500/20 text-emerald-200' : rv.sentiment === 'negatif' ? 'bg-rose-500/20 text-rose-200' : 'bg-slate-700 text-slate-300'}`}>{rv.sentiment || 'netral'}</span>
+                                  <span className="inline-flex items-center gap-1 text-xs text-amber-300">
+                                    <Star className="h-3 w-3 fill-amber-300 text-amber-300" /> {rv.stars}
+                                  </span>
                                 </span>
                               </div>
                               {rv.comment ? (
@@ -631,6 +697,69 @@ export default function CommandCenter() {
               </div>
             )}
             <p className="mt-2 text-[11px] text-slate-500">Sumber: HappinessAssessment & Prediction per cohort. High risk = risk_level high/urgent/critical.</p>
+          </div>
+        </section>
+
+        <section className="grid gap-5 lg:grid-cols-3">
+          <div className="rounded-xl border border-emerald-400/20 bg-slate-900/70 p-5">
+            <h3 className="text-sm font-semibold text-white">Efektivitas Terapi (closed-loop)</h3>
+            <p className="mt-1 text-xs text-slate-500">Rata-rata skor outcome 1-5 dari mahasiswa setelah terapi.</p>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+              <MiniBlock label="Selesai" value={therapyEff?.completed ?? 0} />
+              <MiniBlock label="Pending" value={therapyEff?.pending ?? 0} />
+              <div className="rounded-lg border border-emerald-400/20 bg-slate-950/70 p-3">
+                <p className="text-xs text-slate-500">Avg outcome</p>
+                <p className="mt-1 text-xl font-semibold text-emerald-200">{therapyEff?.overall_avg ? therapyEff.overall_avg.toFixed(2) : '-'}</p>
+              </div>
+            </div>
+            {(therapyEff?.by_category?.length ?? 0) > 0 && (
+              <div className="mt-3 space-y-1">
+                {(therapyEff?.by_category || []).map((c) => (
+                  <div key={c.Category} className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1 text-xs">
+                    <span className="text-slate-400">{c.Category}</span>
+                    <span className="font-semibold text-emerald-200">{c.AvgScore.toFixed(2)} ({c.Count})</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-amber-400/20 bg-slate-900/70 p-5">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Reminder Bimbingan {reminderSem && `— ${reminderSem}`}</h3>
+              <button onClick={loadReminders} className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:border-amber-400/30 hover:text-amber-200"><RefreshCcw className="h-3 w-3" /></button>
+            </div>
+            {(reminders.length === 0) ? (
+              <p className="text-xs text-slate-500">Semua mahasiswa memenuhi syarat sesi.</p>
+            ) : (
+              <div className="max-h-64 space-y-2 overflow-auto pr-1">
+                {reminders.slice(0, 8).map((r) => (
+                  <div key={r.student_id} className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2">
+                    <p className="truncate text-xs font-semibold text-white">{r.nama} @{r.username}</p>
+                    <p className="text-[11px] text-slate-500">{r.prodi} · {r.dpa_name || 'Tanpa DPA'} · UTS {r.verified_uts}/{r.need_uts + r.verified_uts} · UAS {r.verified_uas}/{r.need_uas + r.verified_uas}</p>
+                    <p className="mt-1 text-[11px] text-amber-200">Kurang {r.need_uts} UTS, {r.need_uas} UAS</p>
+                  </div>
+                ))}
+                {reminders.length > 8 && <p className="text-center text-xs text-slate-500">+{reminders.length - 8} lagi</p>}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
+            <h3 className="text-sm font-semibold text-white">Export & WA</h3>
+            <p className="mt-1 text-xs text-slate-500">PDF rating & WA early warning (Fonnte).</p>
+            <button onClick={exportDpaRating} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100">
+              <FileText className="h-4 w-4" /> Export Rating PDF (HTML)
+            </button>
+            <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+              <p className="text-xs font-semibold text-slate-300">WA Early Warning</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Env <code>WHATSAPP_ENABLED=true</code>, <code>WHATSAPP_TOKEN</code>, <code>WHATSAPP_API_URL</code>. Notifikasi dpa_rating & reminder sudah async via <code>dispatchWhatsAppAsync</code>.</p>
+            </div>
+            <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+              <p className="text-xs font-semibold text-slate-300">Booking Slot DPA</p>
+              <p className="mt-1 text-xs text-slate-500">DPA: <code>POST /dpa/slots</code>. Mahasiswa: <code>GET /dpa/slots</code> + <code>POST /dpa/slots/:id/book</code>.</p>
+              <Link to="/dpa/bimbingan" className="mt-2 inline-flex text-xs font-semibold text-cyan-200 hover:text-cyan-100">Kelola slot →</Link>
+            </div>
           </div>
         </section>
 

@@ -134,6 +134,7 @@ func main() {
 			student.POST("/student/bimbingan", StudentCreateBimbinganHandler)
 			student.POST("/dpa/ratings/:dpaId", DpaRateHandler)
 			student.GET("/dpa/ratings/me", DpaMyRatingHandler)
+			student.POST("/user/treatment/:id/outcome", StudentTherapyOutcomeHandler)
 
 			// DPA Routes (dosen pembimbing akademik, scope mahasiswa bimbingan)
 			dpa := protected.Group("/")
@@ -153,6 +154,7 @@ func main() {
 			dpa.PATCH("/dpa/bimbingan/:id/status", DpaBimbinganStatusHandler)
 			dpa.POST("/dpa/bimbingan/report", DpaBimbinganReportHandler)
 			dpa.GET("/dpa/bimbingan/reports", DpaBimbinganReportsHandler)
+			dpa.POST("/dpa/slots", DpaCreateSlotHandler)
 
 			// Grup chat bimbingan: satu grup per DPA, diakses DPA dan
 			// mahasiswa bimbingannya (handler bercabang berdasarkan role).
@@ -161,6 +163,9 @@ func main() {
 			chat.GET("/dpa/chat", DpaChatMessagesHandler)
 			chat.POST("/dpa/chat/send", DpaChatSendHandler)
 			chat.POST("/dpa/chat/polls/:id/vote", DpaChatVoteHandler)
+			chat.GET("/dpa/slots", DpaSlotsListHandler)
+			chat.POST("/dpa/slots/:id/book", DpaSlotBookHandler)
+			chat.POST("/dpa/slots/:id/cancel", DpaSlotCancelHandler)
 
 			// Stream SSE realtime (token via query-param karena EventSource
 			// tidak dapat mengirim header Authorization).
@@ -218,6 +223,9 @@ func main() {
 			superadmin.POST("/superadmin/dpa-ratings/:dpaId/followup", SuperadminDpaRatingFollowUpHandler)
 			superadmin.PATCH("/superadmin/dpa-ratings/followups/:id", SuperadminDpaRatingFollowUpPatchHandler)
 			superadmin.GET("/superadmin/analytics/heatmap", HeatmapProdiAngkatanHandler)
+			superadmin.GET("/superadmin/therapy/effectiveness", TherapyEffectivenessHandler)
+			superadmin.GET("/superadmin/export/dpa-ratings", ExportDpaRatingPDFHandler)
+			superadmin.GET("/superadmin/reminders/bimbingan", BimbinganReminderHandler)
 			superadmin.GET("/admin/config", AdminConfigGetHandler)
 			superadmin.PUT("/admin/config", AdminConfigPutHandler)
 			superadmin.GET("/admin/quantum", AdminQuantumHandler)

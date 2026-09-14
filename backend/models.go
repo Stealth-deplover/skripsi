@@ -142,7 +142,21 @@ type TherapyRecommendation struct {
 	Duration     string `gorm:"default:1_week"`
 	FollowUpDate *time.Time
 	Status       string `gorm:"default:pending"`
+	OutcomeScore *int   `gorm:"index"` // 1-5 efektivitas, diisi mahasiswa setelah durasi
+	CompletedAt  *time.Time
 	Replies      []TreatmentReply
+}
+
+// DpaSlot adalah slot ketersediaan DPA untuk booking bimbingan
+type DpaSlot struct {
+	gorm.Model
+	DpaID     uint      `gorm:"index"`
+	StartTime time.Time `gorm:"index"`
+	EndTime   time.Time `gorm:"index"`
+	Capacity  int       `gorm:"default:1"`
+	BookedBy  uint      `gorm:"index;default:0"` // student id jika dibooking, 0 = tersedia
+	Topic     string    `gorm:"size:191"`
+	Status    string    `gorm:"size:16;default:tersedia;index"` // tersedia | dipesan | selesai | batal
 }
 
 type TreatmentReply struct {
@@ -389,6 +403,7 @@ type DpaRating struct {
 	Stars     int    `gorm:"index"`
 	Comment   string `gorm:"type:text"`
 	Semester  string `gorm:"size:32;index"` // Ganjil 2025/2026, Genap 2025/2026
+	Sentiment string `gorm:"size:16;index"` // positif | netral | negatif
 }
 
 // DpaFollowUp adalah catatan tindak lanjut Kaprodi terhadap penilaian

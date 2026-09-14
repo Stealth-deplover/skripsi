@@ -197,14 +197,15 @@ func DpaRateHandler(c *gin.Context) {
 	}
 
 	semester := currentSemesterLabel()
+	sentiment := detectRatingSentiment(comment, input.Stars)
 
 	var rating DpaRating
 	if err := DB.Where("dpa_id = ? AND student_id = ?", dpaID, student.ID).First(&rating).Error; err == nil {
-		DB.Model(&rating).Updates(map[string]interface{}{"stars": input.Stars, "comment": comment, "semester": semester})
+		DB.Model(&rating).Updates(map[string]interface{}{"stars": input.Stars, "comment": comment, "semester": semester, "sentiment": sentiment})
 		rating.Stars = input.Stars
 		rating.Comment = comment
 	} else {
-		rating = DpaRating{DpaID: dpaID, StudentID: student.ID, Stars: input.Stars, Comment: comment, Semester: semester}
+		rating = DpaRating{DpaID: dpaID, StudentID: student.ID, Stars: input.Stars, Comment: comment, Semester: semester, Sentiment: sentiment}
 		DB.Create(&rating)
 	}
 
@@ -217,7 +218,7 @@ func DpaRateHandler(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"status": "success",
-		"rating": gin.H{"dpa_id": dpaID, "stars": input.Stars, "comment": comment, "semester": semester},
+		"rating": gin.H{"dpa_id": dpaID, "stars": input.Stars, "comment": comment, "semester": semester, "sentiment": sentiment},
 	})
 }
 
@@ -234,7 +235,7 @@ func DpaMyRatingHandler(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"rating": nil})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"rating": gin.H{"dpa_id": rating.DpaID, "stars": rating.Stars, "comment": rating.Comment, "semester": rating.Semester}})
+	c.JSON(http.StatusOK, gin.H{"rating": gin.H{"dpa_id": rating.DpaID, "stars": rating.Stars, "comment": rating.Comment, "semester": rating.Semester, "sentiment": rating.Sentiment}})
 }
 
 // SuperadminDpaRatingsHandler: rekap Gojek-style untuk Kaprodi.
@@ -243,21 +244,23 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 	type Review struct {
 		Stars     int       `json:"stars"`
 		Comment   string    `json:"comment"`
+		Sentiment string    `json:"sentiment"`
 		CreatedAt time.Time `json:"created_at"`
 		Label     string    `json:"label"`
 	}
 	type DpaRatingRow struct {
-		DpaID         uint            `json:"dpa_id"`
-		Nama          string          `json:"nama"`
-		Username      string          `json:"username"`
-		Advisees      int64           `json:"advisees"`
-		RatedBy       int64           `json:"rated_by"`
-		AverageStar   float64         `json:"average_stars"`
-		ResponseRate  float64         `json:"response_rate"`
-		Distribution  map[string]int64 `json:"distribution"`
-		Recommendation gin.H           `json:"recommendation"`
-		RecentReviews []Review        `json:"recent_reviews"`
-		FollowUp      *gin.H          `json:"follow_up"`
+		DpaID           uint             `json:"dpa_id"`
+		Nama            string           `json:"nama"`
+		Username        string           `json:"username"`
+		Advisees        int64            `json:"advisees"`
+		RatedBy         int64            `json:"rated_by"`
+		AverageStar     float64          `json:"average_stars"`
+		ResponseRate    float64          `json:"response_rate"`
+		Distribution    map[string]int64 `json:"distribution"`
+		SentimentCounts map[string]int64 `json:"sentiment_counts"`
+		Recommendation  gin.H            `json:"recommendation"`
+		RecentReviews   []Review         `json:"recent_reviews"`
+		FollowUp        *gin.H           `json:"follow_up"`
 	}
 
 	var dpas []User
@@ -325,11 +328,12 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 		totalAdvisees += adviseeCount
 
 		row := DpaRatingRow{
-			DpaID:    dpa.ID,
-			Nama:     dpa.Nama,
-			Username: dpa.Username,
-			Advisees: adviseeCount,
-			Distribution: map[string]int64{"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
+			DpaID:           dpa.ID,
+			Nama:            dpa.Nama,
+			Username:        dpa.Username,
+			Advisees:        adviseeCount,
+			Distribution:    map[string]int64{"1": 0, "2": 0, "3": 0, "4": 0, "5": 0},
+			SentimentCounts: map[string]int64{"positif": 0, "netral": 0, "negatif": 0},
 		}
 		if agg, ok := aggByDpa[dpa.ID]; ok {
 			row.RatedBy = agg.RatedBy
@@ -352,11 +356,15 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 		reviews := make([]Review, 0, len(ratings))
 		for i, r := range ratings {
 			label := fmt.Sprintf("Mahasiswa %d", i+1)
-			// urutan stabil per DPA agar label konsisten per request
 			_ = idx
-			reviews = append(reviews, Review{Stars: r.Stars, Comment: r.Comment, CreatedAt: r.UpdatedAt, Label: label})
+			if r.Sentiment == "" {
+				r.Sentiment = detectRatingSentiment(r.Comment, r.Stars)
+			}
+			row.SentimentCounts[r.Sentiment]++
+			reviews = append(reviews, Review{Stars: r.Stars, Comment: r.Comment, Sentiment: r.Sentiment, CreatedAt: r.UpdatedAt, Label: label})
 		}
 		row.RecentReviews = reviews
+		// jika belum ada sentiment sama sekali, tetap isi 0
 
 		if fw, ok := followByDpa[dpa.ID]; ok {
 			fh := gin.H{"id": fw.ID, "note": fw.Note, "status": fw.Status, "updated_at": fw.UpdatedAt}
@@ -415,6 +423,45 @@ func currentSemesterLabel() string {
 	}
 	// Januari = Genap tahun sebelumnya
 	return fmt.Sprintf("Genap %d/%d", year-1, year)
+}
+
+func detectRatingSentiment(comment string, stars int) string {
+	c := strings.ToLower(strings.TrimSpace(comment))
+	if c == "" {
+		if stars >= 4 {
+			return "positif"
+		}
+		if stars <= 2 {
+			return "negatif"
+		}
+		return "netral"
+	}
+	positif := []string{"membantu", "baik", "cepat", "jelas", "ramah", "terima kasih", "bagus", "keren", "mantap", "responsif", "support", "peduli", "sangat"}
+	negatif := []string{"lambat", "buruk", "kurang", "sulit", "tidak", "kecewa", "lama", "bingung", "marah", "jelek", "parah", "tidak membantu"}
+	pos, neg := 0, 0
+	for _, w := range positif {
+		if strings.Contains(c, w) {
+			pos++
+		}
+	}
+	for _, w := range negatif {
+		if strings.Contains(c, w) {
+			neg++
+		}
+	}
+	if pos > neg {
+		return "positif"
+	}
+	if neg > pos {
+		return "negatif"
+	}
+	if stars >= 4 {
+		return "positif"
+	}
+	if stars <= 2 {
+		return "negatif"
+	}
+	return "netral"
 }
 
 func buildDpaRecommendation(avg float64, ratedBy, advisees int64, responseRate float64, dist map[string]int64) gin.H {
