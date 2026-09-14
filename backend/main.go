@@ -217,6 +217,7 @@ func main() {
 			superadmin.GET("/superadmin/dpa-ratings/:dpaId/followups", SuperadminDpaRatingFollowUpListHandler)
 			superadmin.POST("/superadmin/dpa-ratings/:dpaId/followup", SuperadminDpaRatingFollowUpHandler)
 			superadmin.PATCH("/superadmin/dpa-ratings/followups/:id", SuperadminDpaRatingFollowUpPatchHandler)
+			superadmin.GET("/superadmin/analytics/heatmap", HeatmapProdiAngkatanHandler)
 			superadmin.GET("/admin/config", AdminConfigGetHandler)
 			superadmin.PUT("/admin/config", AdminConfigPutHandler)
 			superadmin.GET("/admin/quantum", AdminQuantumHandler)

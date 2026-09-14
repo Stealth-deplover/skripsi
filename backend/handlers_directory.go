@@ -196,19 +196,28 @@ func DpaRateHandler(c *gin.Context) {
 		return
 	}
 
+	semester := currentSemesterLabel()
+
 	var rating DpaRating
 	if err := DB.Where("dpa_id = ? AND student_id = ?", dpaID, student.ID).First(&rating).Error; err == nil {
-		DB.Model(&rating).Updates(map[string]interface{}{"stars": input.Stars, "comment": comment})
+		DB.Model(&rating).Updates(map[string]interface{}{"stars": input.Stars, "comment": comment, "semester": semester})
 		rating.Stars = input.Stars
 		rating.Comment = comment
 	} else {
-		rating = DpaRating{DpaID: dpaID, StudentID: student.ID, Stars: input.Stars, Comment: comment}
+		rating = DpaRating{DpaID: dpaID, StudentID: student.ID, Stars: input.Stars, Comment: comment, Semester: semester}
 		DB.Create(&rating)
 	}
 
+	// Notifikasi anonim ke DPA (tanpa nama mahasiswa)
+	DB.Create(&Notification{
+		UserID:  dpaID,
+		Type:    "dpa_rating",
+		Message: fmt.Sprintf("Anda menerima penilaian baru: %d bintang dari mahasiswa bimbingan Anda.", input.Stars),
+	})
+
 	c.JSON(http.StatusOK, gin.H{
 		"status": "success",
-		"rating": gin.H{"dpa_id": dpaID, "stars": input.Stars, "comment": comment},
+		"rating": gin.H{"dpa_id": dpaID, "stars": input.Stars, "comment": comment, "semester": semester},
 	})
 }
 
@@ -225,7 +234,7 @@ func DpaMyRatingHandler(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"rating": nil})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"rating": gin.H{"dpa_id": rating.DpaID, "stars": rating.Stars, "comment": rating.Comment}})
+	c.JSON(http.StatusOK, gin.H{"rating": gin.H{"dpa_id": rating.DpaID, "stars": rating.Stars, "comment": rating.Comment, "semester": rating.Semester}})
 }
 
 // SuperadminDpaRatingsHandler: rekap Gojek-style untuk Kaprodi.
@@ -365,9 +374,23 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 		overallAvg = round2(sumAvg / float64(countedAvg))
 	}
 
+	// Tren per semester (global)
+	type SemesterAgg struct {
+		Semester string
+		Avg      float64
+		Cnt      int64
+	}
+	var semAggs []SemesterAgg
+	DB.Model(&DpaRating{}).Select("semester as semester, AVG(stars) as avg, COUNT(*) as cnt").Where("semester <> ''").Group("semester").Order("semester ASC").Scan(&semAggs)
+	semesterTrend := make([]gin.H, 0, len(semAggs))
+	for _, s := range semAggs {
+		semesterTrend = append(semesterTrend, gin.H{"semester": s.Semester, "average_stars": round2(s.Avg), "count": s.Cnt})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
-		"ratings":       rows,
-		"total_ratings": totalRatings,
+		"ratings":        rows,
+		"total_ratings":  totalRatings,
+		"semester_trend": semesterTrend,
 		"summary": gin.H{
 			"total_dpa":      len(dpas),
 			"total_advisees": totalAdvisees,
@@ -376,6 +399,22 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 		},
 		"privacy_note": "Rekap bersifat agregat dan anonim — identitas penilai tidak ditampilkan. Ulasan ditampilkan sebagai Mahasiswa 1..n.",
 	})
+}
+
+func currentSemesterLabel() string {
+	now := time.Now()
+	year := now.Year()
+	month := now.Month()
+	if month >= 8 {
+		// Agustus–Desember = Ganjil
+		return fmt.Sprintf("Ganjil %d/%d", year, year+1)
+	}
+	if month >= 2 {
+		// Februari–Juli = Genap
+		return fmt.Sprintf("Genap %d/%d", year-1, year)
+	}
+	// Januari = Genap tahun sebelumnya
+	return fmt.Sprintf("Genap %d/%d", year-1, year)
 }
 
 func buildDpaRecommendation(avg float64, ratedBy, advisees int64, responseRate float64, dist map[string]int64) gin.H {

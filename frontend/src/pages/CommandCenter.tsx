@@ -135,8 +135,25 @@ interface DpaRatingRow {
 interface DpaRatingsData {
   ratings: DpaRatingRow[];
   total_ratings: number;
+  semester_trend: { semester: string; average_stars: number; count: number }[];
   summary: { total_dpa: number; total_advisees: number; total_rated: number; overall_avg: number };
   privacy_note: string;
+}
+
+interface HeatmapRow {
+  prodi: string;
+  angkatan: string;
+  mahasiswa_count: number;
+  avg_happiness: number;
+  avg_burnout: number;
+  high_risk_count: number;
+}
+
+interface HeatmapData {
+  heatmap: HeatmapRow[];
+  prodi_list: string[];
+  angkatan_list: string[];
+  total_cohorts: number;
 }
 
 const severityTone: Record<string, string> = {
@@ -178,6 +195,9 @@ export default function CommandCenter() {
   const [followStatus, setFollowStatus] = useState<Record<number, string>>({});
   const [followSaving, setFollowSaving] = useState<number | null>(null);
   const [expandedDpa, setExpandedDpa] = useState<Record<number, boolean>>({});
+  const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
+  const [heatmapLoading, setHeatmapLoading] = useState(true);
+  const [heatmapError, setHeatmapError] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -231,9 +251,23 @@ export default function CommandCenter() {
     }
   };
 
+  const loadHeatmap = async () => {
+    setHeatmapLoading(true);
+    setHeatmapError('');
+    try {
+      const res = await api.get('/superadmin/analytics/heatmap');
+      setHeatmap(res.data);
+    } catch (err: any) {
+      setHeatmapError(err.response?.data?.error || 'Gagal memuat heatmap.');
+    } finally {
+      setHeatmapLoading(false);
+    }
+  };
+
   useEffect(() => {
     load();
     loadDpaRatings();
+    loadHeatmap();
   }, []);
 
   const riskPressure = useMemo(() => {
@@ -521,6 +555,83 @@ export default function CommandCenter() {
               })}
             </div>
           )}
+        </section>
+
+        {/* Tren Semester + Heatmap Prodi/Angkatan */}
+        <section className="grid gap-5 lg:grid-cols-2">
+          <div className="rounded-xl border border-violet-400/20 bg-slate-900/70 p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">Tren rating per semester</h3>
+              <span className="rounded-full border border-violet-400/20 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-200">{dpaRatings?.semester_trend?.length || 0} semester</span>
+            </div>
+            {dpaLoading ? (
+              <div className="flex h-20 items-center justify-center text-xs text-slate-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memuat tren...</div>
+            ) : (dpaRatings?.semester_trend?.length ?? 0) === 0 ? (
+              <p className="text-xs text-slate-500">Belum ada data semester. Rating baru akan masuk ke {new Date().getMonth() >= 7 ? 'Ganjil' : 'Genap'} {new Date().getMonth() >= 7 ? `${new Date().getFullYear()}/${new Date().getFullYear()+1}` : `${new Date().getFullYear()-1}/${new Date().getFullYear()}`}.</p>
+            ) : (
+              <div className="space-y-2">
+                {(dpaRatings?.semester_trend || []).map((t) => {
+                  const w = Math.round((t.average_stars / 5) * 100);
+                  return (
+                    <div key={t.semester} className="flex items-center gap-3">
+                      <span className="w-32 truncate text-xs text-slate-400">{t.semester}</span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                        <div className="h-full rounded-full bg-violet-400" style={{ width: `${w}%` }} />
+                      </div>
+                      <span className="w-12 text-right text-xs font-semibold text-violet-200">{t.average_stars.toFixed(2)}</span>
+                      <span className="w-10 text-right text-xs text-slate-500">({t.count})</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-3 text-[11px] text-slate-500">Sumber: DpaRating.semester (otomatis saat penilaian). Gunakan untuk lihat dampak pembinaan.</p>
+          </div>
+
+          <div className="rounded-xl border border-cyan-400/20 bg-slate-900/70 p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">Heatmap Prodi × Angkatan</h3>
+              <button onClick={loadHeatmap} className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:border-cyan-400/30 hover:text-cyan-200"><RefreshCcw className="h-3 w-3" /></button>
+            </div>
+            {heatmapError && <div className="mb-2 rounded-md border border-rose-400/20 bg-rose-500/10 px-2 py-1 text-xs text-rose-200">{heatmapError}</div>}
+            {heatmapLoading ? (
+              <div className="flex h-20 items-center justify-center text-xs text-slate-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memuat heatmap...</div>
+            ) : (heatmap?.heatmap?.length ?? 0) === 0 ? (
+              <p className="text-xs text-slate-500">Belum ada data prodi/angkatan. Isi NIM/Prodi/Angkatan di Manajemen User.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="px-2 py-1">Prodi</th>
+                      <th className="px-2 py-1">Angkatan</th>
+                      <th className="px-2 py-1">Mhs</th>
+                      <th className="px-2 py-1">HI avg</th>
+                      <th className="px-2 py-1">Burnout avg</th>
+                      <th className="px-2 py-1">High risk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(heatmap?.heatmap || []).map((r) => {
+                      const hiTone = r.avg_happiness >= 70 ? 'text-emerald-200' : r.avg_happiness >= 50 ? 'text-amber-200' : r.avg_happiness ? 'text-rose-200' : 'text-slate-500';
+                      const burnTone = r.avg_burnout >= 6 ? 'text-rose-200' : r.avg_burnout >= 4 ? 'text-amber-200' : r.avg_burnout ? 'text-emerald-200' : 'text-slate-500';
+                      return (
+                        <tr key={`${r.prodi}-${r.angkatan}`} className="border-t border-slate-800">
+                          <td className="px-2 py-1.5 text-slate-300">{r.prodi || '-'}</td>
+                          <td className="px-2 py-1.5 text-slate-400">{r.angkatan || '-'}</td>
+                          <td className="px-2 py-1.5 text-white">{r.mahasiswa_count}</td>
+                          <td className={`px-2 py-1.5 font-semibold ${hiTone}`}>{r.avg_happiness ? r.avg_happiness.toFixed(1) : '-'}</td>
+                          <td className={`px-2 py-1.5 font-semibold ${burnTone}`}>{r.avg_burnout ? r.avg_burnout.toFixed(2) : '-'}</td>
+                          <td className="px-2 py-1.5 text-amber-200">{r.high_risk_count}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-slate-500">Sumber: HappinessAssessment & Prediction per cohort. High risk = risk_level high/urgent/critical.</p>
+          </div>
         </section>
 
         <section className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">

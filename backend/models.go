@@ -388,6 +388,7 @@ type DpaRating struct {
 	StudentID uint   `gorm:"uniqueIndex:idx_dpa_rating_dpa_student;index"`
 	Stars     int    `gorm:"index"`
 	Comment   string `gorm:"type:text"`
+	Semester  string `gorm:"size:32;index"` // Ganjil 2025/2026, Genap 2025/2026
 }
 
 // DpaFollowUp adalah catatan tindak lanjut Kaprodi terhadap penilaian
