@@ -17,6 +17,7 @@ interface DpaCard {
   prodi_list: string[];
   is_my_dpa: boolean;
   my_stars: number;
+  my_comment: string;
 }
 
 function initials(nama?: string): string {
@@ -36,12 +37,19 @@ export default function DpaDirectory() {
   const [joiningId, setJoiningId] = useState<number | null>(null);
   const [rateTarget, setRateTarget] = useState<{ id: number; stars: number } | null>(null);
   const [savingStars, setSavingStars] = useState(false);
+  const [commentDraft, setCommentDraft] = useState<Record<number, string>>({});
   const [notice, setNotice] = useState('');
 
   const fetchDirectory = useCallback(async () => {
     try {
       const res = await api.get('/dpa/directory');
-      setDpas(res.data.dpa_list ?? []);
+      const list: DpaCard[] = res.data.dpa_list ?? [];
+      setDpas(list);
+      const drafts: Record<number, string> = {};
+      list.forEach((c) => {
+        if (c.is_my_dpa) drafts[c.id] = c.my_comment || '';
+      });
+      setCommentDraft(drafts);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Daftar dosen pembimbing tidak dapat dimuat.');
     } finally {
@@ -73,18 +81,29 @@ export default function DpaDirectory() {
     }
   };
 
-  const saveStars = async (dpaId: number, stars: number) => {
+  const saveStars = async (dpaId: number, stars: number, comment?: string) => {
     setSavingStars(true);
     try {
-      await api.post(`/dpa/ratings/${dpaId}`, { stars });
+      const payloadComment = comment !== undefined ? comment : commentDraft[dpaId] || '';
+      await api.post(`/dpa/ratings/${dpaId}`, { stars, comment: payloadComment });
       setRateTarget({ id: dpaId, stars });
-      setDpas((prev) => prev.map((card) => (card.id === dpaId ? { ...card, my_stars: stars } : card)));
+      setDpas((prev) => prev.map((card) => (card.id === dpaId ? { ...card, my_stars: stars, my_comment: payloadComment } : card)));
+      setCommentDraft((prev) => ({ ...prev, [dpaId]: payloadComment }));
       setNotice('Penilaian terkirim. Hanya Kaprodi yang dapat melihat rekapnya — dosen tidak dapat melihatnya.');
     } catch (err: any) {
       setError(err.response?.data?.error || 'Penilaian gagal tersimpan.');
     } finally {
       setSavingStars(false);
     }
+  };
+
+  const saveComment = async (dpaId: number) => {
+    const stars = dpas.find((d) => d.id === dpaId)?.my_stars || rateTarget?.stars || 0;
+    if (!stars) {
+      setError('Pilih bintang terlebih dahulu sebelum mengirim ulasan.');
+      return;
+    }
+    await saveStars(dpaId, stars, commentDraft[dpaId] || '');
   };
 
   return (
@@ -167,12 +186,33 @@ export default function DpaDirectory() {
                         <StarRating
                           value={currentStars}
                           disabled={savingStars}
-                          onChange={(stars) => saveStars(dpa.id, stars)}
+                          onChange={(stars) => saveStars(dpa.id, stars, commentDraft[dpa.id] || '')}
                         />
                         {savingStars && <Loader2 className="h-4 w-4 animate-spin text-amber-200" />}
                         {currentStars > 0 && !savingStars && (
                           <span className="text-xs text-amber-200/80">{currentStars}/5</span>
                         )}
+                      </div>
+                      <div className="mt-3">
+                        <label className="text-[11px] font-semibold text-amber-100/80">Ulasan (opsional, gaya Gojek)</label>
+                        <textarea
+                          value={commentDraft[dpa.id] ?? ''}
+                          onChange={(e) => setCommentDraft((prev) => ({ ...prev, [dpa.id]: e.target.value }))}
+                          placeholder="Tulis pengalaman bimbingan: respon cepat, penjelasan jelas, dll..."
+                          maxLength={500}
+                          rows={3}
+                          className="mt-1 w-full rounded-lg border border-amber-300/20 bg-slate-950/60 px-3 py-2 text-xs leading-5 text-slate-100 placeholder:text-slate-500 focus:border-amber-300/40 focus:outline-none"
+                        />
+                        <div className="mt-1 flex items-center justify-between">
+                          <span className="text-[10px] text-slate-500">{(commentDraft[dpa.id] || '').length}/500</span>
+                          <button
+                            onClick={() => saveComment(dpa.id)}
+                            disabled={savingStars || !currentStars}
+                            className="rounded-md bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-amber-300 disabled:opacity-50"
+                          >
+                            Simpan ulasan
+                          </button>
+                        </div>
                       </div>
                       <p className="mt-2 text-[10px] leading-4 text-slate-500">
                         Penilaian Anda anonim dan tidak pernah ditampilkan kepada dosen — rekapnya hanya untuk evaluasi Kaprodi.

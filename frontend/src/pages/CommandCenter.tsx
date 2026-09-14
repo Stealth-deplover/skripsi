@@ -9,11 +9,14 @@ import {
   Clock3,
   Database,
   FileText,
+  GraduationCap,
   Loader2,
+  MessageSquareText,
   RefreshCcw,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Star,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -108,6 +111,34 @@ interface LaunchReadiness {
   operational_metrics: Record<string, number>;
 }
 
+interface DpaReview {
+  stars: number;
+  comment: string;
+  created_at: string;
+  label: string;
+}
+
+interface DpaRatingRow {
+  dpa_id: number;
+  nama: string;
+  username: string;
+  advisees: number;
+  rated_by: number;
+  average_stars: number;
+  response_rate: number;
+  distribution: Record<string, number>;
+  recommendation: { label: string; detail: string; priority: string; tone: string };
+  recent_reviews: DpaReview[];
+  follow_up: { id: number; note: string; status: string; updated_at: string } | null;
+}
+
+interface DpaRatingsData {
+  ratings: DpaRatingRow[];
+  total_ratings: number;
+  summary: { total_dpa: number; total_advisees: number; total_rated: number; overall_avg: number };
+  privacy_note: string;
+}
+
 const severityTone: Record<string, string> = {
   urgent: 'border-rose-400/30 bg-rose-500/10 text-rose-100',
   high: 'border-orange-400/30 bg-orange-500/10 text-orange-100',
@@ -140,6 +171,13 @@ export default function CommandCenter() {
   const [launch, setLaunch] = useState<LaunchReadiness | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [dpaRatings, setDpaRatings] = useState<DpaRatingsData | null>(null);
+  const [dpaLoading, setDpaLoading] = useState(true);
+  const [dpaError, setDpaError] = useState('');
+  const [followDraft, setFollowDraft] = useState<Record<number, string>>({});
+  const [followStatus, setFollowStatus] = useState<Record<number, string>>({});
+  const [followSaving, setFollowSaving] = useState<number | null>(null);
+  const [expandedDpa, setExpandedDpa] = useState<Record<number, boolean>>({});
 
   const load = async () => {
     setLoading(true);
@@ -158,8 +196,44 @@ export default function CommandCenter() {
     }
   };
 
+  const loadDpaRatings = async () => {
+    setDpaLoading(true);
+    setDpaError('');
+    try {
+      const res = await api.get('/superadmin/dpa-ratings');
+      setDpaRatings(res.data);
+      const drafts: Record<number, string> = {};
+      const statuses: Record<number, string> = {};
+      (res.data.ratings || []).forEach((r: DpaRatingRow) => {
+        drafts[r.dpa_id] = r.follow_up?.note || '';
+        statuses[r.dpa_id] = r.follow_up?.status || 'diproses';
+      });
+      setFollowDraft((prev) => ({ ...drafts, ...prev }));
+      setFollowStatus((prev) => ({ ...statuses, ...prev }));
+    } catch (err: any) {
+      setDpaError(err.response?.data?.error || 'Gagal memuat penilaian DPA.');
+    } finally {
+      setDpaLoading(false);
+    }
+  };
+
+  const saveFollowUp = async (dpaId: number) => {
+    const note = (followDraft[dpaId] || '').trim();
+    if (!note) return;
+    setFollowSaving(dpaId);
+    try {
+      await api.post(`/superadmin/dpa-ratings/${dpaId}/followup`, { note, status: followStatus[dpaId] || 'diproses' });
+      await loadDpaRatings();
+    } catch (err: any) {
+      setDpaError(err.response?.data?.error || 'Gagal menyimpan tindak lanjut.');
+    } finally {
+      setFollowSaving(null);
+    }
+  };
+
   useEffect(() => {
     load();
+    loadDpaRatings();
   }, []);
 
   const riskPressure = useMemo(() => {
@@ -277,6 +351,176 @@ export default function CommandCenter() {
               </Link>
             ))}
           </div>
+        </section>
+
+        {/* Penilaian DPA ala Gojek — tempel di Command Center */}
+        <section className="rounded-xl border border-amber-400/20 bg-slate-900/70 p-5">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-100">
+                <Star className="h-3.5 w-3.5 fill-amber-300 text-amber-300" />
+                Penilaian DPA — gaya Gojek
+              </div>
+              <h2 className="text-base font-semibold text-white">Rating mahasiswa untuk DPA pembimbing</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+                Rekap anonim: rata-rata bintang, distribusi 5–1, ulasan tanpa identitas, + rekomendasi otomatis & tindak lanjut manual Kaprodi.
+              </p>
+              {dpaRatings?.privacy_note && <p className="mt-2 text-[11px] text-slate-500">{dpaRatings.privacy_note}</p>}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={loadDpaRatings} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 px-3 text-xs font-semibold text-slate-300 hover:border-amber-400/30 hover:text-amber-200">
+                <RefreshCcw className="h-3.5 w-3.5" /> Muat ulang
+              </button>
+            </div>
+          </div>
+
+          {dpaError && <div className="mb-4 rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-200">{dpaError}</div>}
+
+          <div className="mb-4 grid gap-3 md:grid-cols-4">
+            <MiniBlock label="Total DPA" value={dpaRatings?.summary.total_dpa ?? 0} />
+            <MiniBlock label="Total ulasan" value={dpaRatings?.total_ratings ?? 0} />
+            <MiniBlock label="Mahasiswa bimbingan" value={dpaRatings?.summary.total_advisees ?? 0} />
+            <div className="rounded-lg border border-amber-400/20 bg-slate-950/70 p-3">
+              <p className="text-xs text-slate-500">Rata-rata prodi</p>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-xl font-semibold text-amber-200">{(dpaRatings?.summary.overall_avg ?? 0).toFixed(2)}</span>
+                <span className="inline-flex items-center gap-1 text-amber-300">
+                  <Star className="h-4 w-4 fill-amber-300 text-amber-300" /> /5
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {dpaLoading ? (
+            <div className="flex h-24 items-center justify-center text-sm text-slate-400">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Memuat penilaian DPA...
+            </div>
+          ) : (dpaRatings?.ratings?.length ?? 0) === 0 ? (
+            <EmptyState title="Belum ada DPA" body="Tambahkan akun DPA terlebih dahulu." />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {(dpaRatings?.ratings || []).map((row) => {
+                const isExpanded = expandedDpa[row.dpa_id];
+                const maxDist = Math.max(1, ...[1, 2, 3, 4, 5].map((s) => row.distribution[String(s)] || 0));
+                const tone = row.recommendation?.tone || 'slate';
+                const toneClass =
+                  tone === 'emerald' ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100' :
+                  tone === 'amber' ? 'border-amber-400/25 bg-amber-500/10 text-amber-100' :
+                  tone === 'rose' ? 'border-rose-400/25 bg-rose-500/10 text-rose-100' :
+                  'border-slate-700 bg-slate-800/50 text-slate-300';
+                return (
+                  <div key={row.dpa_id} className="flex flex-col rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-sm font-bold text-white">
+                        {row.nama ? row.nama.split(' ').slice(0,2).map(s=>s[0]).join('').toUpperCase() : '?'}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-white">{row.nama}</p>
+                        <p className="truncate text-xs text-slate-500">@{row.username}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                          <span className="inline-flex items-center gap-1 text-amber-200">
+                            <Star className="h-3.5 w-3.5 fill-amber-300 text-amber-300" /> {row.average_stars ? row.average_stars.toFixed(2) : '-'} /5
+                          </span>
+                          <span className="text-slate-500">{row.rated_by}/{row.advisees} menilai</span>
+                          {row.advisees > 0 && <span className="text-slate-500">{Math.round(row.response_rate * 100)}% respon</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-1">
+                      {[5, 4, 3, 2, 1].map((star) => {
+                        const cnt = row.distribution[String(star)] || 0;
+                        const pct = Math.round((cnt / maxDist) * 100);
+                        return (
+                          <div key={star} className="flex items-center gap-2 text-xs">
+                            <span className="w-6 text-slate-400">{star}★</span>
+                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                              <div className="h-full rounded-full bg-amber-400 transition-all" style={{ width: `${cnt ? Math.max(8, pct) : 0}%` }} />
+                            </div>
+                            <span className="w-6 text-right text-slate-500">{cnt}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className={`mt-3 rounded-lg border px-3 py-2 ${toneClass}`}>
+                      <p className="text-xs font-semibold">{row.recommendation?.label}</p>
+                      <p className="mt-1 text-xs leading-5 opacity-80">{row.recommendation?.detail}</p>
+                    </div>
+
+                    <button
+                      onClick={() => setExpandedDpa((prev) => ({ ...prev, [row.dpa_id]: !prev[row.dpa_id] }))}
+                      className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-200 hover:text-amber-100"
+                    >
+                      <MessageSquareText className="h-3.5 w-3.5" /> {isExpanded ? 'Sembunyikan ulasan' : `Lihat ulasan (${row.recent_reviews?.length || 0})`}
+                    </button>
+
+                    {isExpanded && (
+                      <div className="mt-2 space-y-2">
+                        {(row.recent_reviews || []).length === 0 ? (
+                          <p className="text-xs text-slate-500">Belum ada ulasan.</p>
+                        ) : (
+                          row.recent_reviews.map((rv, idx) => (
+                            <div key={idx} className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-amber-200">{rv.label}</span>
+                                <span className="inline-flex items-center gap-1 text-xs text-amber-300">
+                                  <Star className="h-3 w-3 fill-amber-300 text-amber-300" /> {rv.stars}
+                                </span>
+                              </div>
+                              {rv.comment ? (
+                                <p className="mt-1 text-xs leading-5 text-slate-300">“{rv.comment}”</p>
+                              ) : (
+                                <p className="mt-1 text-xs italic text-slate-500">Tanpa komentar</p>
+                              )}
+                              <p className="mt-1 text-[10px] text-slate-600">{formatDate(rv.created_at)}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+
+                    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                      <p className="text-xs font-semibold text-white">Tindak lanjut Kaprodi</p>
+                      {row.follow_up && (
+                        <div className="mt-2 rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2">
+                          <p className="text-xs text-slate-300">{row.follow_up.note}</p>
+                          <p className="mt-1 text-[10px] text-slate-500">{row.follow_up.status} • {formatDate(row.follow_up.updated_at)}</p>
+                        </div>
+                      )}
+                      <textarea
+                        value={followDraft[row.dpa_id] || ''}
+                        onChange={(e) => setFollowDraft((prev) => ({ ...prev, [row.dpa_id]: e.target.value }))}
+                        placeholder="Tulis tindak lanjut: jadwal pembinaan, monitoring, apresiasi..."
+                        rows={2}
+                        maxLength={2000}
+                        className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:border-amber-400/30 focus:outline-none"
+                      />
+                      <div className="mt-2 flex items-center gap-2">
+                        <select
+                          value={followStatus[row.dpa_id] || 'diproses'}
+                          onChange={(e) => setFollowStatus((prev) => ({ ...prev, [row.dpa_id]: e.target.value }))}
+                          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200"
+                        >
+                          <option value="diproses">diproses</option>
+                          <option value="selesai">selesai</option>
+                          <option value="ditunda">ditunda</option>
+                        </select>
+                        <button
+                          onClick={() => saveFollowUp(row.dpa_id)}
+                          disabled={followSaving === row.dpa_id || !(followDraft[row.dpa_id] || '').trim()}
+                          className="inline-flex items-center gap-1 rounded-md bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-amber-300 disabled:opacity-50"
+                        >
+                          {followSaving === row.dpa_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <GraduationCap className="h-3 w-3" />}
+                          Simpan
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <section className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_390px]">
