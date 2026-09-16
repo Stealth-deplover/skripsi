@@ -142,7 +142,21 @@ type TherapyRecommendation struct {
 	Duration     string `gorm:"default:1_week"`
 	FollowUpDate *time.Time
 	Status       string `gorm:"default:pending"`
+	OutcomeScore *int   `gorm:"index"` // 1-5 efektivitas, diisi mahasiswa setelah durasi
+	CompletedAt  *time.Time
 	Replies      []TreatmentReply
+}
+
+// DpaSlot adalah slot ketersediaan DPA untuk booking bimbingan
+type DpaSlot struct {
+	gorm.Model
+	DpaID     uint      `gorm:"index"`
+	StartTime time.Time `gorm:"index"`
+	EndTime   time.Time `gorm:"index"`
+	Capacity  int       `gorm:"default:1"`
+	BookedBy  uint      `gorm:"index;default:0"` // student id jika dibooking, 0 = tersedia
+	Topic     string    `gorm:"size:191"`
+	Status    string    `gorm:"size:16;default:tersedia;index"` // tersedia | dipesan | selesai | batal
 }
 
 type TreatmentReply struct {
@@ -378,14 +392,28 @@ type BimbinganReport struct {
 	ProcessedAt  *time.Time
 }
 
-// DpaRating adalah penilaian bintang (1-5) mahasiswa terhadap performa
-// DPA pembimbingnya. Satu mahasiswa = satu rating per DPA (upsert).
-// Rating TIDAK PERNAH dikembalikan ke role dpa.
+// DpaRating adalah penilaian bintang (1-5) + ulasan opsional mahasiswa
+// terhadap performa DPA pembimbingnya. Satu mahasiswa = satu rating per
+// DPA (upsert). Rating TIDAK PERNAH dikembalikan ke role dpa; hanya
+// Kaprodi melihat rekap anonim ala Gojek.
 type DpaRating struct {
 	gorm.Model
-	DpaID     uint `gorm:"uniqueIndex:idx_dpa_rating_dpa_student;index"`
-	StudentID uint `gorm:"uniqueIndex:idx_dpa_rating_dpa_student;index"`
-	Stars     int
+	DpaID     uint   `gorm:"uniqueIndex:idx_dpa_rating_dpa_student;index"`
+	StudentID uint   `gorm:"uniqueIndex:idx_dpa_rating_dpa_student;index"`
+	Stars     int    `gorm:"index"`
+	Comment   string `gorm:"type:text"`
+	Semester  string `gorm:"size:32;index"` // Ganjil 2025/2026, Genap 2025/2026
+	Sentiment string `gorm:"size:16;index"` // positif | netral | negatif
+}
+
+// DpaFollowUp adalah catatan tindak lanjut Kaprodi terhadap penilaian
+// DPA (manual). Kaprodi menulis rekomendasi/catat status per DPA.
+type DpaFollowUp struct {
+	gorm.Model
+	DpaID     uint   `gorm:"index"`
+	Note      string `gorm:"type:text"`
+	Status    string `gorm:"size:16;default:diproses;index"` // diproses | selesai | ditunda
+	CreatedBy uint   `gorm:"index"`
 }
 
 // DpaReferral adalah rujukan akademik yang dibuat DPA berdasarkan

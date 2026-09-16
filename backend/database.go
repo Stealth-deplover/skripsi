@@ -37,6 +37,8 @@ func ConnectDatabase() {
 		&DpaPollOption{},
 		&DpaPollVote{},
 		&DpaRating{},
+		&DpaFollowUp{},
+		&DpaSlot{},
 		&DpaReferral{},
 		&Bimbingan{},
 		&BimbinganReport{},

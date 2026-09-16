@@ -9,11 +9,14 @@ import {
   Clock3,
   Database,
   FileText,
+  GraduationCap,
   Loader2,
+  MessageSquareText,
   RefreshCcw,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Star,
   Users,
   type LucideIcon,
 } from 'lucide-react';
@@ -108,6 +111,73 @@ interface LaunchReadiness {
   operational_metrics: Record<string, number>;
 }
 
+interface DpaReview {
+  stars: number;
+  comment: string;
+  sentiment: string;
+  created_at: string;
+  label: string;
+}
+
+interface DpaRatingRow {
+  dpa_id: number;
+  nama: string;
+  username: string;
+  advisees: number;
+  rated_by: number;
+  average_stars: number;
+  response_rate: number;
+  distribution: Record<string, number>;
+  sentiment_counts: Record<string, number>;
+  recommendation: { label: string; detail: string; priority: string; tone: string };
+  recent_reviews: DpaReview[];
+  follow_up: { id: number; note: string; status: string; updated_at: string } | null;
+}
+
+interface DpaRatingsData {
+  ratings: DpaRatingRow[];
+  total_ratings: number;
+  semester_trend: { semester: string; average_stars: number; count: number }[];
+  summary: { total_dpa: number; total_advisees: number; total_rated: number; overall_avg: number };
+  privacy_note: string;
+}
+
+interface TherapyEff {
+  by_category: { Category: string; AvgScore: number; Count: number }[];
+  overall_avg: number;
+  pending: number;
+  completed: number;
+}
+
+interface ReminderRow {
+  student_id: number;
+  nama: string;
+  username: string;
+  prodi: string;
+  dpa_name: string;
+  verified_uts: number;
+  verified_uas: number;
+  need_uts: number;
+  need_uas: number;
+  semester: string;
+}
+
+interface HeatmapRow {
+  prodi: string;
+  angkatan: string;
+  mahasiswa_count: number;
+  avg_happiness: number;
+  avg_burnout: number;
+  high_risk_count: number;
+}
+
+interface HeatmapData {
+  heatmap: HeatmapRow[];
+  prodi_list: string[];
+  angkatan_list: string[];
+  total_cohorts: number;
+}
+
 const severityTone: Record<string, string> = {
   urgent: 'border-rose-400/30 bg-rose-500/10 text-rose-100',
   high: 'border-orange-400/30 bg-orange-500/10 text-orange-100',
@@ -140,6 +210,19 @@ export default function CommandCenter() {
   const [launch, setLaunch] = useState<LaunchReadiness | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [dpaRatings, setDpaRatings] = useState<DpaRatingsData | null>(null);
+  const [dpaLoading, setDpaLoading] = useState(true);
+  const [dpaError, setDpaError] = useState('');
+  const [followDraft, setFollowDraft] = useState<Record<number, string>>({});
+  const [followStatus, setFollowStatus] = useState<Record<number, string>>({});
+  const [followSaving, setFollowSaving] = useState<number | null>(null);
+  const [expandedDpa, setExpandedDpa] = useState<Record<number, boolean>>({});
+  const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
+  const [heatmapLoading, setHeatmapLoading] = useState(true);
+  const [heatmapError, setHeatmapError] = useState('');
+  const [therapyEff, setTherapyEff] = useState<TherapyEff | null>(null);
+  const [reminders, setReminders] = useState<ReminderRow[]>([]);
+  const [reminderSem, setReminderSem] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -158,8 +241,90 @@ export default function CommandCenter() {
     }
   };
 
+  const loadDpaRatings = async () => {
+    setDpaLoading(true);
+    setDpaError('');
+    try {
+      const res = await api.get('/superadmin/dpa-ratings');
+      setDpaRatings(res.data);
+      const drafts: Record<number, string> = {};
+      const statuses: Record<number, string> = {};
+      (res.data.ratings || []).forEach((r: DpaRatingRow) => {
+        drafts[r.dpa_id] = r.follow_up?.note || '';
+        statuses[r.dpa_id] = r.follow_up?.status || 'diproses';
+      });
+      setFollowDraft((prev) => ({ ...drafts, ...prev }));
+      setFollowStatus((prev) => ({ ...statuses, ...prev }));
+    } catch (err: any) {
+      setDpaError(err.response?.data?.error || 'Gagal memuat penilaian DPA.');
+    } finally {
+      setDpaLoading(false);
+    }
+  };
+
+  const saveFollowUp = async (dpaId: number) => {
+    const note = (followDraft[dpaId] || '').trim();
+    if (!note) return;
+    setFollowSaving(dpaId);
+    try {
+      await api.post(`/superadmin/dpa-ratings/${dpaId}/followup`, { note, status: followStatus[dpaId] || 'diproses' });
+      await loadDpaRatings();
+    } catch (err: any) {
+      setDpaError(err.response?.data?.error || 'Gagal menyimpan tindak lanjut.');
+    } finally {
+      setFollowSaving(null);
+    }
+  };
+
+  const loadHeatmap = async () => {
+    setHeatmapLoading(true);
+    setHeatmapError('');
+    try {
+      const res = await api.get('/superadmin/analytics/heatmap');
+      setHeatmap(res.data);
+    } catch (err: any) {
+      setHeatmapError(err.response?.data?.error || 'Gagal memuat heatmap.');
+    } finally {
+      setHeatmapLoading(false);
+    }
+  };
+
+  const loadTherapyEff = async () => {
+    try {
+      const res = await api.get('/superadmin/therapy/effectiveness');
+      setTherapyEff(res.data);
+    } catch {}
+  };
+
+  const loadReminders = async () => {
+    try {
+      const res = await api.get('/superadmin/reminders/bimbingan');
+      setReminders(res.data.reminders || []);
+      setReminderSem(res.data.semester || '');
+    } catch {}
+  };
+
+  const exportDpaRating = async () => {
+    try {
+      const res = await api.get('/superadmin/export/dpa-ratings', { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `laporan-rating-dpa-${new Date().toISOString().slice(0,10)}.html`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Gagal export');
+    }
+  };
+
   useEffect(() => {
     load();
+    loadDpaRatings();
+    loadHeatmap();
+    loadTherapyEff();
+    loadReminders();
   }, []);
 
   const riskPressure = useMemo(() => {
@@ -276,6 +441,325 @@ export default function CommandCenter() {
                 <p className="text-xs leading-5 text-slate-300">{check.detail}</p>
               </Link>
             ))}
+          </div>
+        </section>
+
+        {/* Penilaian DPA ala Gojek — tempel di Command Center */}
+        <section className="rounded-xl border border-amber-400/20 bg-slate-900/70 p-5">
+          <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-100">
+                <Star className="h-3.5 w-3.5 fill-amber-300 text-amber-300" />
+                Penilaian DPA — gaya Gojek
+              </div>
+              <h2 className="text-base font-semibold text-white">Rating mahasiswa untuk DPA pembimbing</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">
+                Rekap anonim: rata-rata bintang, distribusi 5–1, ulasan tanpa identitas, + rekomendasi otomatis & tindak lanjut manual Kaprodi.
+              </p>
+              {dpaRatings?.privacy_note && <p className="mt-2 text-[11px] text-slate-500">{dpaRatings.privacy_note}</p>}
+            </div>
+            <div className="flex gap-2">
+              <button onClick={loadDpaRatings} className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-700 px-3 text-xs font-semibold text-slate-300 hover:border-amber-400/30 hover:text-amber-200">
+                <RefreshCcw className="h-3.5 w-3.5" /> Muat ulang
+              </button>
+            </div>
+          </div>
+
+          {dpaError && <div className="mb-4 rounded-lg border border-rose-400/25 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-200">{dpaError}</div>}
+
+          <div className="mb-4 grid gap-3 md:grid-cols-4">
+            <MiniBlock label="Total DPA" value={dpaRatings?.summary.total_dpa ?? 0} />
+            <MiniBlock label="Total ulasan" value={dpaRatings?.total_ratings ?? 0} />
+            <MiniBlock label="Mahasiswa bimbingan" value={dpaRatings?.summary.total_advisees ?? 0} />
+            <div className="rounded-lg border border-amber-400/20 bg-slate-950/70 p-3">
+              <p className="text-xs text-slate-500">Rata-rata prodi</p>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="text-xl font-semibold text-amber-200">{(dpaRatings?.summary.overall_avg ?? 0).toFixed(2)}</span>
+                <span className="inline-flex items-center gap-1 text-amber-300">
+                  <Star className="h-4 w-4 fill-amber-300 text-amber-300" /> /5
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {dpaLoading ? (
+            <div className="flex h-24 items-center justify-center text-sm text-slate-400">
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Memuat penilaian DPA...
+            </div>
+          ) : (dpaRatings?.ratings?.length ?? 0) === 0 ? (
+            <EmptyState title="Belum ada DPA" body="Tambahkan akun DPA terlebih dahulu." />
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {(dpaRatings?.ratings || []).map((row) => {
+                const isExpanded = expandedDpa[row.dpa_id];
+                const maxDist = Math.max(1, ...[1, 2, 3, 4, 5].map((s) => row.distribution[String(s)] || 0));
+                const tone = row.recommendation?.tone || 'slate';
+                const toneClass =
+                  tone === 'emerald' ? 'border-emerald-400/25 bg-emerald-500/10 text-emerald-100' :
+                  tone === 'amber' ? 'border-amber-400/25 bg-amber-500/10 text-amber-100' :
+                  tone === 'rose' ? 'border-rose-400/25 bg-rose-500/10 text-rose-100' :
+                  'border-slate-700 bg-slate-800/50 text-slate-300';
+                return (
+                  <div key={row.dpa_id} className="flex flex-col rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+                    <div className="flex items-start gap-3">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-sm font-bold text-white">
+                        {row.nama ? row.nama.split(' ').slice(0,2).map(s=>s[0]).join('').toUpperCase() : '?'}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-white">{row.nama}</p>
+                        <p className="truncate text-xs text-slate-500">@{row.username}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                          <span className="inline-flex items-center gap-1 text-amber-200">
+                            <Star className="h-3.5 w-3.5 fill-amber-300 text-amber-300" /> {row.average_stars ? row.average_stars.toFixed(2) : '-'} /5
+                          </span>
+                          <span className="text-slate-500">{row.rated_by}/{row.advisees} menilai</span>
+                          {row.advisees > 0 && <span className="text-slate-500">{Math.round(row.response_rate * 100)}% respon</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 space-y-1">
+                      {[5, 4, 3, 2, 1].map((star) => {
+                        const cnt = row.distribution[String(star)] || 0;
+                        const pct = Math.round((cnt / maxDist) * 100);
+                        return (
+                          <div key={star} className="flex items-center gap-2 text-xs">
+                            <span className="w-6 text-slate-400">{star}★</span>
+                            <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                              <div className="h-full rounded-full bg-amber-400 transition-all" style={{ width: `${cnt ? Math.max(8, pct) : 0}%` }} />
+                            </div>
+                            <span className="w-6 text-right text-slate-500">{cnt}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <span className="rounded-full border border-emerald-400/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-200">Positif {row.sentiment_counts?.positif || 0}</span>
+                      <span className="rounded-full border border-slate-600 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-slate-300">Netral {row.sentiment_counts?.netral || 0}</span>
+                      <span className="rounded-full border border-rose-400/20 bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-200">Negatif {row.sentiment_counts?.negatif || 0}</span>
+                    </div>
+
+                    <div className={`mt-3 rounded-lg border px-3 py-2 ${toneClass}`}>
+                      <p className="text-xs font-semibold">{row.recommendation?.label}</p>
+                      <p className="mt-1 text-xs leading-5 opacity-80">{row.recommendation?.detail}</p>
+                    </div>
+
+                    <button
+                      onClick={() => setExpandedDpa((prev) => ({ ...prev, [row.dpa_id]: !prev[row.dpa_id] }))}
+                      className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-amber-200 hover:text-amber-100"
+                    >
+                      <MessageSquareText className="h-3.5 w-3.5" /> {isExpanded ? 'Sembunyikan ulasan' : `Lihat ulasan (${row.recent_reviews?.length || 0})`}
+                    </button>
+
+                    {isExpanded && (
+                      <div className="mt-2 space-y-2">
+                        {(row.recent_reviews || []).length === 0 ? (
+                          <p className="text-xs text-slate-500">Belum ada ulasan.</p>
+                        ) : (
+                          row.recent_reviews.map((rv, idx) => (
+                            <div key={idx} className="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-xs font-semibold text-amber-200">{rv.label}</span>
+                                <span className="flex items-center gap-1.5">
+                                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-bold ${rv.sentiment === 'positif' ? 'bg-emerald-500/20 text-emerald-200' : rv.sentiment === 'negatif' ? 'bg-rose-500/20 text-rose-200' : 'bg-slate-700 text-slate-300'}`}>{rv.sentiment || 'netral'}</span>
+                                  <span className="inline-flex items-center gap-1 text-xs text-amber-300">
+                                    <Star className="h-3 w-3 fill-amber-300 text-amber-300" /> {rv.stars}
+                                  </span>
+                                </span>
+                              </div>
+                              {rv.comment ? (
+                                <p className="mt-1 text-xs leading-5 text-slate-300">“{rv.comment}”</p>
+                              ) : (
+                                <p className="mt-1 text-xs italic text-slate-500">Tanpa komentar</p>
+                              )}
+                              <p className="mt-1 text-[10px] text-slate-600">{formatDate(rv.created_at)}</p>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+
+                    <div className="mt-3 rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                      <p className="text-xs font-semibold text-white">Tindak lanjut Kaprodi</p>
+                      {row.follow_up && (
+                        <div className="mt-2 rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2">
+                          <p className="text-xs text-slate-300">{row.follow_up.note}</p>
+                          <p className="mt-1 text-[10px] text-slate-500">{row.follow_up.status} • {formatDate(row.follow_up.updated_at)}</p>
+                        </div>
+                      )}
+                      <textarea
+                        value={followDraft[row.dpa_id] || ''}
+                        onChange={(e) => setFollowDraft((prev) => ({ ...prev, [row.dpa_id]: e.target.value }))}
+                        placeholder="Tulis tindak lanjut: jadwal pembinaan, monitoring, apresiasi..."
+                        rows={2}
+                        maxLength={2000}
+                        className="mt-2 w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-xs text-slate-100 placeholder:text-slate-500 focus:border-amber-400/30 focus:outline-none"
+                      />
+                      <div className="mt-2 flex items-center gap-2">
+                        <select
+                          value={followStatus[row.dpa_id] || 'diproses'}
+                          onChange={(e) => setFollowStatus((prev) => ({ ...prev, [row.dpa_id]: e.target.value }))}
+                          className="rounded-md border border-slate-700 bg-slate-950 px-2 py-1.5 text-xs text-slate-200"
+                        >
+                          <option value="diproses">diproses</option>
+                          <option value="selesai">selesai</option>
+                          <option value="ditunda">ditunda</option>
+                        </select>
+                        <button
+                          onClick={() => saveFollowUp(row.dpa_id)}
+                          disabled={followSaving === row.dpa_id || !(followDraft[row.dpa_id] || '').trim()}
+                          className="inline-flex items-center gap-1 rounded-md bg-amber-400 px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-amber-300 disabled:opacity-50"
+                        >
+                          {followSaving === row.dpa_id ? <Loader2 className="h-3 w-3 animate-spin" /> : <GraduationCap className="h-3 w-3" />}
+                          Simpan
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* Tren Semester + Heatmap Prodi/Angkatan */}
+        <section className="grid gap-5 lg:grid-cols-2">
+          <div className="rounded-xl border border-violet-400/20 bg-slate-900/70 p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">Tren rating per semester</h3>
+              <span className="rounded-full border border-violet-400/20 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-200">{dpaRatings?.semester_trend?.length || 0} semester</span>
+            </div>
+            {dpaLoading ? (
+              <div className="flex h-20 items-center justify-center text-xs text-slate-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memuat tren...</div>
+            ) : (dpaRatings?.semester_trend?.length ?? 0) === 0 ? (
+              <p className="text-xs text-slate-500">Belum ada data semester. Rating baru akan masuk ke {new Date().getMonth() >= 7 ? 'Ganjil' : 'Genap'} {new Date().getMonth() >= 7 ? `${new Date().getFullYear()}/${new Date().getFullYear()+1}` : `${new Date().getFullYear()-1}/${new Date().getFullYear()}`}.</p>
+            ) : (
+              <div className="space-y-2">
+                {(dpaRatings?.semester_trend || []).map((t) => {
+                  const w = Math.round((t.average_stars / 5) * 100);
+                  return (
+                    <div key={t.semester} className="flex items-center gap-3">
+                      <span className="w-32 truncate text-xs text-slate-400">{t.semester}</span>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                        <div className="h-full rounded-full bg-violet-400" style={{ width: `${w}%` }} />
+                      </div>
+                      <span className="w-12 text-right text-xs font-semibold text-violet-200">{t.average_stars.toFixed(2)}</span>
+                      <span className="w-10 text-right text-xs text-slate-500">({t.count})</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <p className="mt-3 text-[11px] text-slate-500">Sumber: DpaRating.semester (otomatis saat penilaian). Gunakan untuk lihat dampak pembinaan.</p>
+          </div>
+
+          <div className="rounded-xl border border-cyan-400/20 bg-slate-900/70 p-5">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-white">Heatmap Prodi × Angkatan</h3>
+              <button onClick={loadHeatmap} className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:border-cyan-400/30 hover:text-cyan-200"><RefreshCcw className="h-3 w-3" /></button>
+            </div>
+            {heatmapError && <div className="mb-2 rounded-md border border-rose-400/20 bg-rose-500/10 px-2 py-1 text-xs text-rose-200">{heatmapError}</div>}
+            {heatmapLoading ? (
+              <div className="flex h-20 items-center justify-center text-xs text-slate-500"><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Memuat heatmap...</div>
+            ) : (heatmap?.heatmap?.length ?? 0) === 0 ? (
+              <p className="text-xs text-slate-500">Belum ada data prodi/angkatan. Isi NIM/Prodi/Angkatan di Manajemen User.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="px-2 py-1">Prodi</th>
+                      <th className="px-2 py-1">Angkatan</th>
+                      <th className="px-2 py-1">Mhs</th>
+                      <th className="px-2 py-1">HI avg</th>
+                      <th className="px-2 py-1">Burnout avg</th>
+                      <th className="px-2 py-1">High risk</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(heatmap?.heatmap || []).map((r) => {
+                      const hiTone = r.avg_happiness >= 70 ? 'text-emerald-200' : r.avg_happiness >= 50 ? 'text-amber-200' : r.avg_happiness ? 'text-rose-200' : 'text-slate-500';
+                      const burnTone = r.avg_burnout >= 6 ? 'text-rose-200' : r.avg_burnout >= 4 ? 'text-amber-200' : r.avg_burnout ? 'text-emerald-200' : 'text-slate-500';
+                      return (
+                        <tr key={`${r.prodi}-${r.angkatan}`} className="border-t border-slate-800">
+                          <td className="px-2 py-1.5 text-slate-300">{r.prodi || '-'}</td>
+                          <td className="px-2 py-1.5 text-slate-400">{r.angkatan || '-'}</td>
+                          <td className="px-2 py-1.5 text-white">{r.mahasiswa_count}</td>
+                          <td className={`px-2 py-1.5 font-semibold ${hiTone}`}>{r.avg_happiness ? r.avg_happiness.toFixed(1) : '-'}</td>
+                          <td className={`px-2 py-1.5 font-semibold ${burnTone}`}>{r.avg_burnout ? r.avg_burnout.toFixed(2) : '-'}</td>
+                          <td className="px-2 py-1.5 text-amber-200">{r.high_risk_count}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-slate-500">Sumber: HappinessAssessment & Prediction per cohort. High risk = risk_level high/urgent/critical.</p>
+          </div>
+        </section>
+
+        <section className="grid gap-5 lg:grid-cols-3">
+          <div className="rounded-xl border border-emerald-400/20 bg-slate-900/70 p-5">
+            <h3 className="text-sm font-semibold text-white">Efektivitas Terapi (closed-loop)</h3>
+            <p className="mt-1 text-xs text-slate-500">Rata-rata skor outcome 1-5 dari mahasiswa setelah terapi.</p>
+            <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+              <MiniBlock label="Selesai" value={therapyEff?.completed ?? 0} />
+              <MiniBlock label="Pending" value={therapyEff?.pending ?? 0} />
+              <div className="rounded-lg border border-emerald-400/20 bg-slate-950/70 p-3">
+                <p className="text-xs text-slate-500">Avg outcome</p>
+                <p className="mt-1 text-xl font-semibold text-emerald-200">{therapyEff?.overall_avg ? therapyEff.overall_avg.toFixed(2) : '-'}</p>
+              </div>
+            </div>
+            {(therapyEff?.by_category?.length ?? 0) > 0 && (
+              <div className="mt-3 space-y-1">
+                {(therapyEff?.by_category || []).map((c) => (
+                  <div key={c.Category} className="flex items-center justify-between rounded-md border border-slate-800 bg-slate-950/60 px-2 py-1 text-xs">
+                    <span className="text-slate-400">{c.Category}</span>
+                    <span className="font-semibold text-emerald-200">{c.AvgScore.toFixed(2)} ({c.Count})</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-amber-400/20 bg-slate-900/70 p-5">
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white">Reminder Bimbingan {reminderSem && `— ${reminderSem}`}</h3>
+              <button onClick={loadReminders} className="rounded-md border border-slate-700 px-2 py-1 text-xs text-slate-400 hover:border-amber-400/30 hover:text-amber-200"><RefreshCcw className="h-3 w-3" /></button>
+            </div>
+            {(reminders.length === 0) ? (
+              <p className="text-xs text-slate-500">Semua mahasiswa memenuhi syarat sesi.</p>
+            ) : (
+              <div className="max-h-64 space-y-2 overflow-auto pr-1">
+                {reminders.slice(0, 8).map((r) => (
+                  <div key={r.student_id} className="rounded-md border border-slate-800 bg-slate-950/60 px-3 py-2">
+                    <p className="truncate text-xs font-semibold text-white">{r.nama} @{r.username}</p>
+                    <p className="text-[11px] text-slate-500">{r.prodi} · {r.dpa_name || 'Tanpa DPA'} · UTS {r.verified_uts}/{r.need_uts + r.verified_uts} · UAS {r.verified_uas}/{r.need_uas + r.verified_uas}</p>
+                    <p className="mt-1 text-[11px] text-amber-200">Kurang {r.need_uts} UTS, {r.need_uas} UAS</p>
+                  </div>
+                ))}
+                {reminders.length > 8 && <p className="text-center text-xs text-slate-500">+{reminders.length - 8} lagi</p>}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-900/70 p-5">
+            <h3 className="text-sm font-semibold text-white">Export & WA</h3>
+            <p className="mt-1 text-xs text-slate-500">PDF rating & WA early warning (Fonnte).</p>
+            <button onClick={exportDpaRating} className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100">
+              <FileText className="h-4 w-4" /> Export Rating PDF (HTML)
+            </button>
+            <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+              <p className="text-xs font-semibold text-slate-300">WA Early Warning</p>
+              <p className="mt-1 text-xs leading-5 text-slate-500">Env <code>WHATSAPP_ENABLED=true</code>, <code>WHATSAPP_TOKEN</code>, <code>WHATSAPP_API_URL</code>. Notifikasi dpa_rating & reminder sudah async via <code>dispatchWhatsAppAsync</code>.</p>
+            </div>
+            <div className="mt-3 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+              <p className="text-xs font-semibold text-slate-300">Booking Slot DPA</p>
+              <p className="mt-1 text-xs text-slate-500">DPA: <code>POST /dpa/slots</code>. Mahasiswa: <code>GET /dpa/slots</code> + <code>POST /dpa/slots/:id/book</code>.</p>
+              <Link to="/dpa/bimbingan" className="mt-2 inline-flex text-xs font-semibold text-cyan-200 hover:text-cyan-100">Kelola slot →</Link>
+            </div>
           </div>
         </section>
 
