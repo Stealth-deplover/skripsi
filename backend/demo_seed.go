@@ -78,15 +78,19 @@ func SeedDemoData() {
 	if !strings.EqualFold(strings.TrimSpace(getEnv("SEED_DEMO_DATA", "false")), "true") {
 		return
 	}
-	demoPassword := getEnv("DEMO_PASSWORD", "")
-	if message := validatePassword(demoPassword); message != "" {
-		log.Printf("Seed demo dilewati: DEMO_PASSWORD %s", strings.ToLower(message))
-		return
-	}
 
 	var marker ActivityLog
 	if err := DB.Where("action = ?", demoSeedMarker).First(&marker).Error; err == nil {
+		if err := repairDemoMBTIResults(); err != nil {
+			log.Printf("Perbaikan hasil MBTI demo gagal: %v", err)
+		}
 		log.Printf("Seed demo sudah pernah dijalankan (%s)", demoSeedMarker)
+		return
+	}
+
+	demoPassword := getEnv("DEMO_PASSWORD", "")
+	if message := validatePassword(demoPassword); message != "" {
+		log.Printf("Seed demo dilewati: DEMO_PASSWORD %s", strings.ToLower(message))
 		return
 	}
 
@@ -186,6 +190,29 @@ func SeedDemoData() {
 		return
 	}
 	log.Printf("Seed demo UMCI selesai: %d mahasiswa, DPA %s dan %s, Kaprodi %s, staf %s", len(students), iskandar.Username, ashari.Username, kaprodi.Username, staff.Username)
+}
+
+func repairDemoMBTIResults() error {
+	var results []MBTIResult
+	if err := DB.Where("source = ? AND question_set = ?", "demo-seed", "demo-mbti-2026").Find(&results).Error; err != nil {
+		return err
+	}
+
+	for _, result := range results {
+		var dimensions []MBTIDimensionResult
+		if err := json.Unmarshal([]byte(result.DimensionsJSON), &dimensions); err == nil && len(dimensions) == len(mbtiDimensionAxes) {
+			continue
+		}
+		encoded, err := json.Marshal(buildDemoMBTIDimensions(result.PersonalityType))
+		if err != nil {
+			return err
+		}
+		if err := DB.Model(&MBTIResult{}).Where("id = ?", result.ID).Update("dimensions_json", string(encoded)).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func ensureDemoUser(spec demoUserSpec, hashedPassword string) (User, error) {
@@ -352,10 +379,14 @@ func seedDemoStudentRecords(student User, spec demoStudentSpec, dpa User, staff 
 		}
 	}
 
+	dimensionsJSON, err := json.Marshal(buildDemoMBTIDimensions(spec.MBTI))
+	if err != nil {
+		return err
+	}
 	mbti := MBTIResult{
 		UserID: student.ID, QuestionSet: "demo-mbti-2026", PersonalityType: spec.MBTI, Title: spec.MBTITitle,
 		Summary: "Hasil demo untuk memperlihatkan profil refleksi diri mahasiswa.", StrengthsJSON: `["Konsisten", "Mau belajar", "Kolaboratif"]`,
-		WatchoutsJSON: `["Menjaga ritme", "Mengatur prioritas"]`, DimensionsJSON: `{"E":55,"I":45,"S":50,"N":50,"T":52,"F":48,"J":54,"P":46}`,
+		WatchoutsJSON: `["Menjaga ritme", "Mengatur prioritas"]`, DimensionsJSON: string(dimensionsJSON),
 		Source: "demo-seed", Timestamp: now.AddDate(0, 0, -14),
 	}
 	if err := DB.Create(&mbti).Error; err != nil {

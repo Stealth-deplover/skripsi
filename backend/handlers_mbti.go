@@ -40,6 +40,61 @@ type MBTIDimensionResult struct {
 	Selected   string  `json:"selected"`
 }
 
+var mbtiDimensionAxes = []struct {
+	dimension string
+	leftPole  string
+	rightPole string
+}{
+	{dimension: "EI", leftPole: "E", rightPole: "I"},
+	{dimension: "SN", leftPole: "S", rightPole: "N"},
+	{dimension: "TF", leftPole: "T", rightPole: "F"},
+	{dimension: "JP", leftPole: "J", rightPole: "P"},
+}
+
+func buildMBTIDimensionsFromScores(scores map[string]float64, personalityType string) []MBTIDimensionResult {
+	personalityType = strings.ToUpper(strings.TrimSpace(personalityType))
+	dimensions := make([]MBTIDimensionResult, 0, len(mbtiDimensionAxes))
+
+	for index, axis := range mbtiDimensionAxes {
+		leftScore, hasLeft := scores[axis.leftPole]
+		rightScore, hasRight := scores[axis.rightPole]
+		if !hasLeft || !hasRight {
+			leftScore, rightScore = 55, 45
+			if index < len(personalityType) && string(personalityType[index]) == axis.rightPole {
+				leftScore, rightScore = 45, 55
+			}
+		}
+
+		selected := axis.leftPole
+		if rightScore > leftScore || (rightScore == leftScore && index < len(personalityType) && string(personalityType[index]) == axis.rightPole) {
+			selected = axis.rightPole
+		}
+		dimensions = append(dimensions, MBTIDimensionResult{
+			Dimension:  axis.dimension,
+			LeftPole:   axis.leftPole,
+			RightPole:  axis.rightPole,
+			LeftScore:  leftScore,
+			RightScore: rightScore,
+			Selected:   selected,
+		})
+	}
+
+	return dimensions
+}
+
+func buildDemoMBTIDimensions(personalityType string) []MBTIDimensionResult {
+	personalityType = strings.ToUpper(strings.TrimSpace(personalityType))
+	scores := make(map[string]float64, len(mbtiDimensionAxes)*2)
+	for index, axis := range mbtiDimensionAxes {
+		if index < len(personalityType) && string(personalityType[index]) == axis.rightPole {
+			scores[axis.leftPole], scores[axis.rightPole] = 45, 55
+			continue
+		}
+		scores[axis.leftPole], scores[axis.rightPole] = 55, 45
+	}
+	return buildMBTIDimensionsFromScores(scores, personalityType)
+}
+
 type MBTIEvaluation struct {
 	Type       string                `json:"type"`
 	Title      string                `json:"title"`
@@ -546,10 +601,24 @@ func buildMBTIFallbackEvaluation(responses []MBTIResponse, questions []MBTIQuest
 func hydrateMBTIResult(result MBTIResult) gin.H {
 	var strengths []string
 	var watchouts []string
-	var dimensions []MBTIDimensionResult
 	_ = json.Unmarshal([]byte(result.StrengthsJSON), &strengths)
 	_ = json.Unmarshal([]byte(result.WatchoutsJSON), &watchouts)
-	_ = json.Unmarshal([]byte(result.DimensionsJSON), &dimensions)
+	if strengths == nil {
+		strengths = []string{}
+	}
+	if watchouts == nil {
+		watchouts = []string{}
+	}
+
+	var dimensions []MBTIDimensionResult
+	if err := json.Unmarshal([]byte(result.DimensionsJSON), &dimensions); err != nil || len(dimensions) == 0 {
+		var legacyScores map[string]float64
+		if err := json.Unmarshal([]byte(result.DimensionsJSON), &legacyScores); err == nil && len(legacyScores) > 0 {
+			dimensions = buildMBTIDimensionsFromScores(legacyScores, result.PersonalityType)
+		} else {
+			dimensions = buildMBTIDimensionsFromScores(nil, result.PersonalityType)
+		}
+	}
 
 	return gin.H{
 		"id":           result.ID,

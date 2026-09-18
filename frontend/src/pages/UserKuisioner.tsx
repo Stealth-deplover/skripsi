@@ -90,6 +90,25 @@ interface PreviousPrediction {
   risk: string;
 }
 
+const normalizeMBTIResult = (value: unknown): MBTIResult | null => {
+  if (!value || typeof value !== 'object') return null;
+  const raw = value as Partial<MBTIResult>;
+
+  return {
+    id: typeof raw.id === 'number' ? raw.id : undefined,
+    type: typeof raw.type === 'string' ? raw.type : '-',
+    title: typeof raw.title === 'string' ? raw.title : 'Profil MBTI',
+    summary: typeof raw.summary === 'string' ? raw.summary : 'Belum ada ringkasan hasil.',
+    strengths: Array.isArray(raw.strengths) ? raw.strengths.filter((item): item is string => typeof item === 'string') : [],
+    watchouts: Array.isArray(raw.watchouts) ? raw.watchouts.filter((item): item is string => typeof item === 'string') : [],
+    dimensions: Array.isArray(raw.dimensions)
+      ? raw.dimensions.filter((item): item is MBTIDimension => Boolean(item && typeof item === 'object'))
+      : [],
+    source: typeof raw.source === 'string' ? raw.source : 'unknown',
+    timestamp: typeof raw.timestamp === 'string' ? raw.timestamp : undefined,
+  };
+};
+
 type QuestionProfile = 'balanced' | 'academic' | 'work' | 'recovery';
 type MBTISessionMode = 'quick' | 'balanced' | 'deep';
 type MBTIFocus = 'general' | 'academic' | 'work' | 'social';
@@ -407,7 +426,7 @@ export default function UserKuisioner() {
   const fetchLatestMBTI = async () => {
     try {
       const response = await api.get('/user/mbti/latest');
-      setLatestMbti(response.data?.result || null);
+      setLatestMbti(normalizeMBTIResult(response.data?.result));
     } catch {
       setLatestMbti(null);
     }
@@ -459,9 +478,10 @@ export default function UserKuisioner() {
         question_set: mbtiQuestionSet,
         responses: finalResponses,
       });
-      setMbtiResult(response.data);
-      setLatestMbti(response.data);
-      setMbtiModalOpen(true);
+      const nextResult = normalizeMBTIResult(response.data);
+      setMbtiResult(nextResult);
+      setLatestMbti(nextResult);
+      setMbtiModalOpen(Boolean(nextResult));
     } catch (error: any) {
       console.error(error);
       setMbtiError(error.response?.data?.error || 'Gagal mengirim hasil MBTI. Silakan coba lagi.');
