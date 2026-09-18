@@ -120,7 +120,11 @@ func UserCheckInCreateHandler(c *gin.Context) {
 
 	if checkin.StressScore >= 4 || checkin.MoodScore <= 2 || checkin.EnergyScore <= 2 || checkin.SleepHours < 4 {
 		var admins []User
-		DB.Where("role = ?", RoleSuperadmin).Find(&admins)
+		adminQuery := DB.Where("role = ?", RoleSuperadmin)
+		if user.ProgramStudiID > 0 {
+			adminQuery = adminQuery.Where("program_studi_id = ?", user.ProgramStudiID)
+		}
+		adminQuery.Find(&admins)
 		for _, admin := range admins {
 			DB.Create(&Notification{
 				UserID:  admin.ID,
@@ -177,10 +181,14 @@ func UserRecoveryPlanHandler(c *gin.Context) {
 }
 
 func AdminCommandCenterHandler(c *gin.Context) {
-	warnings := buildEarlyWarnings(120)
+	actor := c.MustGet("user").(User)
+	programID := adminProgramScope(actor)
+	warnings := buildEarlyWarnings(120, programID)
 	now := time.Now()
 	since24h := now.Add(-24 * time.Hour)
 	since7d := now.AddDate(0, 0, -7)
+	userScope := userSubqueryForProgram(programID)
+	studentScope := studentSubqueryForProgram(programID)
 
 	var totalUsers int64
 	var admins int64
@@ -194,22 +202,22 @@ func AdminCommandCenterHandler(c *gin.Context) {
 	var checkins24h int64
 	var activity24h int64
 
-	DB.Model(&User{}).Count(&totalUsers)
-	DB.Model(&User{}).Where("role = ?", RoleSuperadmin).Count(&admins)
-	DB.Model(&User{}).Where("role = ?", RoleStudent).Count(&mahasiswa)
-	DB.Model(&TherapyRecommendation{}).Where("status = ?", "pending").Count(&pendingTreatments)
-	DB.Model(&TreatmentReply{}).Where("admin_seen = ?", false).Count(&unreadReplies)
-	DB.Model(&Notification{}).Where("is_read = ?", false).Count(&unreadNotifications)
-	DB.Model(&Curhat{}).Where("crisis_flag = ? OR risk_level = ?", true, "Crisis").Count(&crisisCurhats)
-	DB.Model(&Assessment{}).Where("timestamp >= ?", since7d).Count(&assessments7d)
-	DB.Model(&Prediction{}).Where("timestamp >= ?", since7d).Count(&predictions7d)
-	DB.Model(&DailyCheckIn{}).Where("timestamp >= ?", since24h).Count(&checkins24h)
-	DB.Model(&ActivityLog{}).Where("created_at >= ?", since24h).Count(&activity24h)
+	DB.Model(&User{}).Where("id IN (?)", userScope).Count(&totalUsers)
+	DB.Model(&User{}).Where("id IN (?) AND role = ?", userScope, RoleSuperadmin).Count(&admins)
+	DB.Model(&User{}).Where("id IN (?) AND role = ?", studentScope, RoleStudent).Count(&mahasiswa)
+	DB.Model(&TherapyRecommendation{}).Where("user_id IN (?) AND status = ?", studentScope, "pending").Count(&pendingTreatments)
+	DB.Model(&TreatmentReply{}).Where("user_id IN (?) AND admin_seen = ?", studentScope, false).Count(&unreadReplies)
+	DB.Model(&Notification{}).Where("user_id IN (?) AND is_read = ?", userScope, false).Count(&unreadNotifications)
+	DB.Model(&Curhat{}).Where("user_id IN (?) AND (crisis_flag = ? OR risk_level = ?)", studentScope, true, "Crisis").Count(&crisisCurhats)
+	DB.Model(&Assessment{}).Where("user_id IN (?) AND timestamp >= ?", studentScope, since7d).Count(&assessments7d)
+	DB.Model(&Prediction{}).Where("user_id IN (?) AND timestamp >= ?", studentScope, since7d).Count(&predictions7d)
+	DB.Model(&DailyCheckIn{}).Where("user_id IN (?) AND timestamp >= ?", studentScope, since24h).Count(&checkins24h)
+	DB.Model(&ActivityLog{}).Where("user_id IN (?) AND created_at >= ?", userScope, since24h).Count(&activity24h)
 
 	var logs []ActivityLog
-	DB.Order("created_at DESC").Limit(8).Find(&logs)
+	DB.Where("user_id IN (?)", userScope).Order("created_at DESC").Limit(8).Find(&logs)
 	var latestUsers []User
-	DB.Order("created_at DESC").Limit(6).Find(&latestUsers)
+	DB.Where("id IN (?)", userScope).Order("created_at DESC").Limit(6).Find(&latestUsers)
 
 	c.JSON(http.StatusOK, gin.H{
 		"generated_at": now,
@@ -250,7 +258,8 @@ func AdminCommandCenterHandler(c *gin.Context) {
 }
 
 func AdminRiskCenterHandler(c *gin.Context) {
-	warnings := buildEarlyWarnings(80)
+	actor := c.MustGet("user").(User)
+	warnings := buildEarlyWarnings(80, adminProgramScope(actor))
 	stats := gin.H{
 		"total":      len(warnings),
 		"urgent":     countWarningsBySeverity(warnings, "urgent"),
@@ -356,6 +365,14 @@ func AdminUserTimelineHandler(c *gin.Context) {
 	if !ok {
 		return
 	}
+	var user User
+	if err := DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+		return
+	}
+	if !requireAdminUserAccess(c, user) {
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{"timeline": buildRiskTimeline(userID, 120)})
 }
 
@@ -369,6 +386,9 @@ func AdminUserCaseSummaryHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
 		return
 	}
+	if !requireAdminUserAccess(c, user) {
+		return
+	}
 	c.JSON(http.StatusOK, buildCaseSummary(user))
 }
 
@@ -380,6 +400,9 @@ func AdminUserReportExportHandler(c *gin.Context) {
 	var user User
 	if err := DB.First(&user, userID).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+		return
+	}
+	if !requireAdminUserAccess(c, user) {
 		return
 	}
 	summary := buildCaseSummary(user)
@@ -412,6 +435,9 @@ func AdminTriageStatusHandler(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Curhat tidak ditemukan"})
 			return
 		}
+		if !requireAdminUserAccessByID(c, curhat.UserID) {
+			return
+		}
 		curhat.AdminStatus = status
 		DB.Save(&curhat)
 		recordRiskTriageActivity(c, sourceType, id, status, curhat.UserID)
@@ -423,6 +449,9 @@ func AdminTriageStatusHandler(c *gin.Context) {
 		var treatment TherapyRecommendation
 		if err := DB.First(&treatment, id).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Terapi tidak ditemukan"})
+			return
+		}
+		if !requireAdminUserAccessByID(c, treatment.UserID) {
 			return
 		}
 		treatment.Status = status
@@ -438,6 +467,9 @@ func AdminTriageStatusHandler(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Balasan tidak ditemukan"})
 			return
 		}
+		if !requireAdminUserAccessByID(c, reply.UserID) {
+			return
+		}
 		reply.AdminSeen = true
 		DB.Save(&reply)
 		recordRiskTriageActivity(c, sourceType, id, status, reply.UserID)
@@ -451,6 +483,9 @@ func AdminTriageStatusHandler(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Prediksi tidak ditemukan"})
 			return
 		}
+		if !requireAdminUserAccessByID(c, prediction.UserID) {
+			return
+		}
 		recordRiskTriageActivity(c, sourceType, id, status, prediction.UserID)
 	case "checkin":
 		if !isCompletedTriageStatus(status) {
@@ -460,6 +495,9 @@ func AdminTriageStatusHandler(c *gin.Context) {
 		var checkin DailyCheckIn
 		if err := DB.First(&checkin, id).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Check-in tidak ditemukan"})
+			return
+		}
+		if !requireAdminUserAccessByID(c, checkin.UserID) {
 			return
 		}
 		recordRiskTriageActivity(c, sourceType, id, status, checkin.UserID)
@@ -548,7 +586,16 @@ func buildRiskTimeline(userID uint, limit int) []RiskTimelineItem {
 	return items
 }
 
-func buildEarlyWarnings(limit int) []EarlyWarningItem {
+func requireAdminUserAccessByID(c *gin.Context, userID uint) bool {
+	var user User
+	if err := DB.First(&user, userID).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User tidak ditemukan"})
+		return false
+	}
+	return requireAdminUserAccess(c, user)
+}
+
+func buildEarlyWarnings(limit int, programID uint) []EarlyWarningItem {
 	warnings := []EarlyWarningItem{}
 	userMap := map[uint]User{}
 	lookupUser := func(id uint) User {
@@ -562,7 +609,7 @@ func buildEarlyWarnings(limit int) []EarlyWarningItem {
 	}
 
 	var predictions []Prediction
-	DB.Where("id IN (?)", DB.Model(&Prediction{}).Select("MAX(id)").Group("user_id")).Order("timestamp DESC").Find(&predictions)
+	DB.Where("id IN (?)", DB.Model(&Prediction{}).Select("MAX(id)").Where("user_id IN (?)", studentSubqueryForProgram(programID)).Group("user_id")).Order("timestamp DESC").Find(&predictions)
 	for _, p := range predictions {
 		score := normalizeRiskScore(p.RiskLevel, p.BurnoutScore/10, p.PsychosomaticScore/10)
 		if p.RiskLevel == "High" || p.RiskLevel == "Crisis" || score >= 0.68 {
@@ -581,7 +628,7 @@ func buildEarlyWarnings(limit int) []EarlyWarningItem {
 	}
 
 	var curhats []Curhat
-	DB.Where("risk_level IN ? OR crisis_flag = ?", []string{"High", "Crisis"}, true).Order("timestamp DESC").Limit(80).Find(&curhats)
+	DB.Where("user_id IN (?) AND (risk_level IN ? OR crisis_flag = ?)", studentSubqueryForProgram(programID), []string{"High", "Crisis"}, true).Order("timestamp DESC").Limit(80).Find(&curhats)
 	for _, ch := range curhats {
 		if ch.AdminStatus == "resolved" || ch.AdminStatus == "completed" || isRiskItemResolved("curhat", ch.ID) {
 			continue
@@ -600,7 +647,7 @@ func buildEarlyWarnings(limit int) []EarlyWarningItem {
 	}
 
 	var replies []TreatmentReply
-	DB.Where("admin_seen = ?", false).Order("created_at DESC").Limit(60).Find(&replies)
+	DB.Where("user_id IN (?) AND admin_seen = ?", studentSubqueryForProgram(programID), false).Order("created_at DESC").Limit(60).Find(&replies)
 	for _, reply := range replies {
 		u := lookupUser(reply.UserID)
 		warnings = append(warnings, EarlyWarningItem{
@@ -613,7 +660,7 @@ func buildEarlyWarnings(limit int) []EarlyWarningItem {
 	}
 
 	var checkins []DailyCheckIn
-	DB.Where("id IN (?)", DB.Model(&DailyCheckIn{}).Select("MAX(id)").Group("user_id")).Order("timestamp DESC").Limit(80).Find(&checkins)
+	DB.Where("id IN (?)", DB.Model(&DailyCheckIn{}).Select("MAX(id)").Where("user_id IN (?)", studentSubqueryForProgram(programID)).Group("user_id")).Order("timestamp DESC").Limit(80).Find(&checkins)
 	for _, checkin := range checkins {
 		score := checkInRiskScore(checkin)
 		if score < 0.55 && checkin.StressScore < 4 && checkin.MoodScore > 2 && checkin.EnergyScore > 2 && checkin.SleepHours >= 5 {

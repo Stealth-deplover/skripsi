@@ -19,6 +19,7 @@ func AdminHappinessAnalyticsHandler(c *gin.Context) {
 	if !AdminGuard(c) {
 		return
 	}
+	actor := c.MustGet("user").(User)
 	config := getSystemConfig()
 
 	// Filter opsional: prodi, angkatan, semester, periode (hari).
@@ -32,6 +33,9 @@ func AdminHappinessAnalyticsHandler(c *gin.Context) {
 	since := time.Now().AddDate(0, 0, -days)
 
 	query := DB.Where("role = ?", RoleStudent)
+	if scope := adminProgramScope(actor); scope > 0 {
+		query = query.Where("program_studi_id = ?", scope)
+	}
 	if prodi != "" {
 		query = query.Where("prodi = ?", prodi)
 	}
@@ -303,17 +307,21 @@ func AdminHappinessAnalyticsHandler(c *gin.Context) {
 
 	// Daftar prodi untuk filter
 	var prodiList []string
-	DB.Model(&User{}).Where("role = ? AND prodi <> ''", RoleStudent).Distinct().Pluck("prodi", &prodiList)
+	prodiQuery := DB.Model(&User{}).Where("role = ? AND prodi <> ''", RoleStudent)
+	if scope := adminProgramScope(actor); scope > 0 {
+		prodiQuery = prodiQuery.Where("program_studi_id = ?", scope)
+	}
+	prodiQuery.Distinct().Pluck("prodi", &prodiList)
 
 	c.JSON(http.StatusOK, gin.H{
 		"overview": gin.H{
-			"total_students":       len(rows),
-			"avg_burnout":          avgBurnout,
-			"avg_happiness":        avgHappiness,
-			"burnout_tinggi":       burnoutTinggi,
-			"happiness_rendah":     happinessRendah,
-			"priority_monitoring":  priorityMonitoring,
-			"students_with_burnout": burnoutN,
+			"total_students":          len(rows),
+			"avg_burnout":             avgBurnout,
+			"avg_happiness":           avgHappiness,
+			"burnout_tinggi":          burnoutTinggi,
+			"happiness_rendah":        happinessRendah,
+			"priority_monitoring":     priorityMonitoring,
+			"students_with_burnout":   burnoutN,
 			"students_with_happiness": happinessN,
 		},
 		"filters": gin.H{

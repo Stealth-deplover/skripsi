@@ -30,8 +30,8 @@ func normalizeRole(role string) string {
 }
 
 func isValidRole(role string) bool {
-	switch normalizeRole(role) {
-	case RoleStudent, RoleDPA, RoleSuperadmin, RoleStaff:
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case RoleStudent, RoleDPA, "dosen", "admin", RoleSuperadmin, "kaprodi", RoleStaff, "staf":
 		return true
 	}
 	return false

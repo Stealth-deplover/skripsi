@@ -1,26 +1,23 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Brain, TrendingUp, RefreshCw, ShieldCheck,
-  Users, Database, BarChart2, Percent,
-  User, Lock, Eye, EyeOff, UserPlus, Mail,
+  User, Lock, Eye, EyeOff, UserPlus, Mail, Hash, GraduationCap,
 } from 'lucide-react';
 import api from '../api';
-import { useOnlineStatus } from '../hooks/useOnlineStatus';
-import GoogleAccountButton, { getAuthErrorMessage, getGoogleOriginNotice } from '../components/auth/GoogleAccountButton';
+import { getAuthErrorMessage } from '../components/auth/GoogleAccountButton';
 
 const features = [
   { Icon: Brain,      t: 'Quantum Cognition',  d: 'Memodelkan ketidakpastian dan pengambilan keputusan manusia secara probabilistik.' },
   { Icon: TrendingUp, t: 'Regresi Linier',     d: 'Prediksi numerik yang interpretable dan mudah diimplementasikan.' },
   { Icon: RefreshCw,  t: 'Agile Development',  d: 'Iteratif, adaptif, dan kolaboratif untuk hasil yang berkualitas.' },
-  { Icon: ShieldCheck,t: 'Keamanan Data',      d: 'Data Anda aman bersama kami dengan enkripsi tingkat enterprise.' },
+  { Icon: ShieldCheck,t: 'Kontrol Akses',     d: 'Akses informasi disesuaikan dengan peran dan program studi Anda.' },
 ];
-const stats = [
-  { Icon: Users,    v: '1.256+',  l: 'Total Pengguna' },
-  { Icon: Database, v: '12.540+', l: 'Data Responden' },
-  { Icon: BarChart2,v: '3.847+',  l: 'Prediksi Dilakukan' },
-  { Icon: Percent,  v: '92.7%',   l: 'Akurasi Model' },
-];
+
+interface ProgramStudi {
+  id: number;
+  label: string;
+}
 
 const validatePassword = (value: string) => ({
   min: value.length >= 8,
@@ -29,12 +26,14 @@ const validatePassword = (value: string) => ({
   number: /\d/.test(value),
 });
 
-const isUsernameValid = (value: string) => /^[a-zA-Z0-9._@-]{3,80}$/.test(value.trim());
-
 export default function Register() {
   const nav = useNavigate();
   const [nama,        setNama]       = useState('');
-  const [username,    setUsername]   = useState('');
+  const [nim,         setNim]        = useState('');
+  const [email,       setEmail]      = useState('');
+  const [programStudiId, setProgramStudiId] = useState('');
+  const [programs,    setPrograms]   = useState<ProgramStudi[]>([]);
+  const [programLoading, setProgramLoading] = useState(true);
   const [password,    setPassword]   = useState('');
   const [confirm,     setConfirm]    = useState('');
   const [showPw,      setShowPw]     = useState(false);
@@ -42,24 +41,38 @@ export default function Register() {
   const [err,         setErr]        = useState('');
   const [success,     setSuccess]    = useState('');
   const [busy,        setBusy]       = useState(false);
-  const online = useOnlineStatus();
-  const googleOriginNotice = getGoogleOriginNotice();
   const passwordRules = useMemo(() => validatePassword(password), [password]);
   const passwordSafe = Object.values(passwordRules).every(Boolean);
+
+  useEffect(() => {
+    api.get('/public/program-studi')
+      .then((response) => setPrograms(response.data.program_studi || []))
+      .catch(() => setErr('Daftar program studi belum dapat dimuat. Coba muat ulang halaman.'))
+      .finally(() => setProgramLoading(false));
+  }, []);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErr(''); setSuccess('');
 
     const cleanNama = nama.trim();
-    const cleanUsername = username.trim().toLowerCase();
+    const cleanNim = nim.trim();
+    const cleanEmail = email.trim().toLowerCase();
 
     if (cleanNama.length < 3) {
       setErr('Nama lengkap minimal 3 karakter.');
       return;
     }
-    if (!isUsernameValid(cleanUsername)) {
-      setErr('Username hanya boleh berisi huruf, angka, titik, underscore, strip, atau email.');
+    if (cleanNim.length < 4) {
+      setErr('NIM minimal 4 karakter.');
+      return;
+    }
+    if (!cleanEmail || !/^\S+@\S+\.\S+$/.test(cleanEmail)) {
+      setErr('Masukkan email yang valid.');
+      return;
+    }
+    if (!programStudiId) {
+      setErr('Pilih program studi Anda.');
       return;
     }
     if (password !== confirm) {
@@ -73,7 +86,13 @@ export default function Register() {
 
     setBusy(true);
     try {
-      await api.post('/register', { username: cleanUsername, password, nama: cleanNama });
+      await api.post('/register', {
+        email: cleanEmail,
+        nim: cleanNim,
+        password,
+        nama: cleanNama,
+        program_studi_id: Number(programStudiId),
+      });
       setSuccess('Akun berhasil dibuat! Mengarahkan ke halaman masuk...');
       setTimeout(() => nav('/login'), 1500);
     } catch (x: unknown) {
@@ -118,7 +137,7 @@ export default function Register() {
         .stat .lb{font-size:10px;color:#64748b;margin-top:2px}
 
         /* RIGHT */
-        .rp{flex:1;background:#f1f5f9;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;position:relative}
+        .rp{flex:1;background:#f1f5f9;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;position:relative;overflow:auto}
         .rp-card{width:100%;max-width:420px;background:#fff;border-radius:24px;box-shadow:0 4px 24px rgba(0,0,0,.06);padding:36px 32px;position:relative;z-index:1}
         .rp-header{text-align:center;margin-bottom:22px}
         .rp-brain{display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:16px;background:linear-gradient(135deg,rgba(99,102,241,.12),rgba(139,92,246,.08));border:1.5px solid rgba(99,102,241,.2);margin-bottom:14px}
@@ -128,8 +147,9 @@ export default function Register() {
         .field{margin-bottom:13px}
         .field label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:5px}
         .field .wrap{position:relative}
-        .field input[type=text],.field input[type=password]{width:100%;padding:10px 14px 10px 38px;border:1.5px solid #e5e7eb;border-radius:10px;font-size:12px;color:#111827;background:#f9fafb;outline:none;transition:border-color .2s;font-family:'Inter',sans-serif}
-        .field input:focus{border-color:#6366f1}
+        .field input[type=text],.field input[type=email],.field input[type=password],.field select{width:100%;padding:10px 14px 10px 38px;border:1.5px solid #e5e7eb;border-radius:10px;font-size:12px;color:#111827;background:#f9fafb;outline:none;transition:border-color .2s;font-family:'Inter',sans-serif}
+        .field select{appearance:auto;padding-left:38px}
+        .field input:focus,.field select:focus{border-color:#6366f1}
         .field .icon-l{position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#9ca3af}
         .field .icon-r{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#9ca3af;padding:0;display:flex}
 
@@ -187,10 +207,10 @@ export default function Register() {
             </div>
 
             <div className="lp-hero">
-              <h2>Bergabung dengan</h2>
-              <h2 className="grad">Sistem Analitik Prediktif</h2>
-              <h2>Terdepan</h2>
-              <p>Daftar sekarang dan mulai pantau kesehatan mental Anda dengan teknologi Quantum Cognition dan Regresi Linier yang akurat.</p>
+              <h2>Daftar sebagai</h2>
+              <h2 className="grad">Mahasiswa UMCI</h2>
+              <h2>dengan akses terarah</h2>
+              <p>Lengkapi NIM, email, dan program studi untuk memakai fitur asesmen serta monitoring yang sesuai dengan akses akun Anda.</p>
             </div>
 
             {features.map(({ Icon, t, d }) => (
@@ -202,13 +222,8 @@ export default function Register() {
           </div>
 
           <div className="stats-bar">
-            {stats.map(({ Icon, v, l }) => (
-              <div className="stat" key={l}>
-                <Icon size={16} color="#818cf8" />
-                <div className="v">{v}</div>
-                <div className="lb">{l}</div>
-              </div>
-            ))}
+            <div className="stat"><GraduationCap size={16} color="#818cf8" /><div className="v">UMCI</div><div className="lb">Registrasi mahasiswa</div></div>
+            <div className="stat"><ShieldCheck size={16} color="#818cf8" /><div className="v">7</div><div className="lb">Program studi resmi</div></div>
           </div>
         </div>
 
@@ -218,7 +233,7 @@ export default function Register() {
             <div className="rp-header">
               <div className="rp-brain"><UserPlus size={26} color="#6366f1" /></div>
               <h3>Buat Akun Baru</h3>
-              <p>Daftar untuk mengakses QC Analytics</p>
+              <p>Registrasi mahasiswa Universitas Muhammadiyah Cileungsi</p>
             </div>
 
             {err     && <div className="err-box">{err}</div>}
@@ -241,19 +256,52 @@ export default function Register() {
                 </div>
               </div>
 
-              {/* Username */}
+              {/* NIM */}
               <div className="field">
-                <label>Username</label>
+                <label>NIM</label>
+                <div className="wrap">
+                  <Hash size={14} className="icon-l" />
+                  <input
+                    type="text"
+                    value={nim}
+                    onChange={e => setNim(e.target.value)}
+                    placeholder="Masukkan NIM"
+                    autoComplete="off"
+                    required
+                  />
+                </div>
+              </div>
+
+              {/* Email */}
+              <div className="field">
+                <label>Email</label>
                 <div className="wrap">
                   <Mail size={14} className="icon-l" />
                   <input
-                    type="text"
-                    value={username}
-                    onChange={e => setUsername(e.target.value)}
-                    placeholder="Username atau email"
-                    autoComplete="username"
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="nama@kampus.ac.id"
+                    autoComplete="email"
                     required
                   />
+                </div>
+              </div>
+
+              {/* Program Studi */}
+              <div className="field">
+                <label>Program Studi</label>
+                <div className="wrap">
+                  <GraduationCap size={14} className="icon-l" />
+                  <select
+                    value={programStudiId}
+                    onChange={e => setProgramStudiId(e.target.value)}
+                    required
+                    disabled={programLoading}
+                  >
+                    <option value="">{programLoading ? 'Memuat program studi...' : 'Pilih program studi'}</option>
+                    {programs.map(program => <option key={program.id} value={program.id}>{program.label}</option>)}
+                  </select>
                 </div>
               </div>
 
@@ -308,30 +356,12 @@ export default function Register() {
               </button>
             </form>
 
-            <div className="divider"><span>atau daftar dengan</span></div>
-
-            <div className="socials">
-              <GoogleAccountButton
-                busy={busy}
-                online={online}
-                label="Daftar dengan Google"
-                onBusyChange={setBusy}
-                onError={setErr}
-                onAuthenticated={(token, userData) => {
-                  localStorage.setItem('token', token);
-                  localStorage.setItem('user', JSON.stringify(userData));
-                  nav(userData.role === 'admin' ? '/dashboard' : '/user/dashboard');
-                }}
-              />
-            </div>
-            {googleOriginNotice && <div className="lan-note">{googleOriginNotice}</div>}
-
             <div className="signin">
               Sudah punya akun?{' '}
               <Link to="/login">Masuk di sini</Link>
             </div>
           </div>
-          <div className="rp-footer">© 2024 QC Analytics. All rights reserved.</div>
+          <div className="rp-footer">© 2026 NexusMind UMCI</div>
         </div>
       </div>
     </>

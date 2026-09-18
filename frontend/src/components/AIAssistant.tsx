@@ -1,4 +1,5 @@
 import { AnimatePresence, motion } from 'framer-motion';
+import { gsap } from 'gsap';
 import {
   AlertTriangle,
   ArrowRight,
@@ -12,6 +13,7 @@ import {
   ListChecks,
   Loader2,
   MessageCircle,
+  Move,
   Plus,
   SendHorizontal,
   Sparkles,
@@ -20,7 +22,17 @@ import {
   VolumeX,
   X,
 } from 'lucide-react';
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  FormEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import api from '../api';
 
@@ -157,6 +169,222 @@ const quickPrompts: Record<AssistantRole, string[]> = {
 
 const storageKey = (role: AssistantRole) => `nexus_assistant_history_${role}`;
 const seenInsightKey = (role: AssistantRole) => `nexus_assistant_seen_insight_${role}`;
+const assistantPositionKey = (role: AssistantRole) => `nexus_assistant_position_${role}`;
+
+interface AssistantPosition {
+  x: number;
+  y: number;
+}
+
+interface AssistantDragState extends AssistantPosition {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+}
+
+function readAssistantPosition(role: AssistantRole): AssistantPosition {
+  try {
+    const stored = JSON.parse(localStorage.getItem(assistantPositionKey(role)) || '{}') as Partial<AssistantPosition>;
+    return {
+      x: Number.isFinite(stored.x) ? Number(stored.x) : 0,
+      y: Number.isFinite(stored.y) ? Number(stored.y) : 0,
+    };
+  } catch {
+    return { x: 0, y: 0 };
+  }
+}
+
+function prefersReducedMotion() {
+  return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+}
+
+function useAssistantDrag(role: AssistantRole, open: boolean) {
+  const stageRef = useRef<HTMLDivElement>(null);
+  const positionRef = useRef<AssistantPosition>(readAssistantPosition(role));
+  const dragRef = useRef<AssistantDragState | null>(null);
+  const suppressClickRef = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const savePosition = useCallback((position: AssistantPosition) => {
+    positionRef.current = position;
+    try {
+      localStorage.setItem(assistantPositionKey(role), JSON.stringify(position));
+    } catch {
+      // Posisi tetap berfungsi selama halaman aktif jika storage tidak tersedia.
+    }
+  }, [role]);
+
+  const clampPosition = useCallback((node: HTMLDivElement, position: AssistantPosition): AssistantPosition => {
+    const rect = node.getBoundingClientRect();
+    const currentX = Number(gsap.getProperty(node, 'x')) || 0;
+    const currentY = Number(gsap.getProperty(node, 'y')) || 0;
+    const margin = window.innerWidth < 640 ? 8 : 14;
+    const minX = margin - rect.left + currentX;
+    const maxX = Math.max(minX, window.innerWidth - margin - rect.width - rect.left + currentX);
+    const minY = margin - rect.top + currentY;
+    const maxY = Math.max(minY, window.innerHeight - margin - rect.height - rect.top + currentY);
+
+    return {
+      x: gsap.utils.clamp(minX, maxX, position.x),
+      y: gsap.utils.clamp(minY, maxY, position.y),
+    };
+  }, []);
+
+  const animateTo = useCallback((position: AssistantPosition, duration = 0.28) => {
+    const node = stageRef.current;
+    if (!node) return;
+    const next = clampPosition(node, position);
+    const nextDuration = prefersReducedMotion() ? 0 : duration;
+    savePosition(next);
+    gsap.to(node, {
+      x: next.x,
+      y: next.y,
+      duration: nextDuration,
+      ease: 'power3.out',
+      overwrite: 'auto',
+    });
+  }, [clampPosition, savePosition]);
+
+  useLayoutEffect(() => {
+    positionRef.current = readAssistantPosition(role);
+    const node = stageRef.current;
+    if (!node) return;
+    const next = clampPosition(node, positionRef.current);
+    positionRef.current = next;
+    gsap.set(node, { x: next.x, y: next.y, scale: 1 });
+  }, [clampPosition, open, role]);
+
+  useEffect(() => {
+    const handlePointerMove = (event: globalThis.PointerEvent) => {
+      const drag = dragRef.current;
+      const node = stageRef.current;
+      if (!drag || !node || drag.pointerId !== event.pointerId) return;
+
+      const deltaX = event.clientX - drag.startX;
+      const deltaY = event.clientY - drag.startY;
+      if (!drag.moved && Math.hypot(deltaX, deltaY) > 4) {
+        drag.moved = true;
+        suppressClickRef.current = true;
+      }
+
+      const next = clampPosition(node, { x: drag.x + deltaX, y: drag.y + deltaY });
+      positionRef.current = next;
+      gsap.set(node, next);
+    };
+
+    const handlePointerUp = (event: globalThis.PointerEvent) => {
+      const drag = dragRef.current;
+      const node = stageRef.current;
+      if (!drag || !node || drag.pointerId !== event.pointerId) return;
+
+      dragRef.current = null;
+      setIsDragging(false);
+      const current = positionRef.current;
+      gsap.to(node, {
+        scale: 1,
+        duration: prefersReducedMotion() ? 0 : 0.18,
+        ease: 'power2.out',
+        overwrite: 'auto',
+      });
+
+      if (!drag.moved) {
+        return;
+      }
+
+      const rect = node.getBoundingClientRect();
+      const currentX = Number(gsap.getProperty(node, 'x')) || 0;
+      const currentY = Number(gsap.getProperty(node, 'y')) || 0;
+      const margin = window.innerWidth < 640 ? 8 : 14;
+      const minX = margin - rect.left + currentX;
+      const maxX = Math.max(minX, window.innerWidth - margin - rect.width - rect.left + currentX);
+      const minY = margin - rect.top + currentY;
+      const maxY = Math.max(minY, window.innerHeight - margin - rect.height - rect.top + currentY);
+      const targetX = Math.abs(current.x - minX) <= Math.abs(maxX - current.x) ? minX : maxX;
+      const targetY = gsap.utils.clamp(minY, maxY, current.y);
+      animateTo({ x: targetX, y: targetY }, 0.42);
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
+    };
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerUp);
+    window.addEventListener('pointercancel', handlePointerUp);
+    return () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerUp);
+      window.removeEventListener('pointercancel', handlePointerUp);
+    };
+  }, [animateTo, clampPosition]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      const node = stageRef.current;
+      if (!node) return;
+      animateTo(positionRef.current, 0.2);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [animateTo]);
+
+  const startDrag = useCallback((event: ReactPointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const target = event.target as HTMLElement;
+    const currentTarget = event.currentTarget as HTMLElement;
+    const interactiveTarget = target.closest('button, input, textarea, select, a');
+    if (interactiveTarget && interactiveTarget !== currentTarget) return;
+
+    const node = stageRef.current;
+    if (!node) return;
+    if (currentTarget.tagName !== 'BUTTON') event.preventDefault();
+    gsap.killTweensOf(node);
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: Number(gsap.getProperty(node, 'x')) || positionRef.current.x,
+      y: Number(gsap.getProperty(node, 'y')) || positionRef.current.y,
+      moved: false,
+    };
+    setIsDragging(true);
+    gsap.to(node, {
+      scale: 1.015,
+      duration: prefersReducedMotion() ? 0 : 0.12,
+      ease: 'power2.out',
+      overwrite: 'auto',
+    });
+  }, []);
+
+  const moveByKey = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
+    const distance = 32;
+    const delta = {
+      ArrowLeft: { x: -distance, y: 0 },
+      ArrowRight: { x: distance, y: 0 },
+      ArrowUp: { x: 0, y: -distance },
+      ArrowDown: { x: 0, y: distance },
+    }[event.key];
+    if (!delta) return;
+    event.preventDefault();
+    animateTo({ x: positionRef.current.x + delta.x, y: positionRef.current.y + delta.y });
+  }, [animateTo]);
+
+  const consumeClick = useCallback(() => {
+    if (!suppressClickRef.current) return false;
+    suppressClickRef.current = false;
+    return true;
+  }, []);
+
+  const resetPosition = useCallback(() => {
+    suppressClickRef.current = true;
+    animateTo({ x: 0, y: 0 }, 0.36);
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
+  }, [animateTo]);
+
+  return { stageRef, startDrag, moveByKey, consumeClick, resetPosition, isDragging };
+}
 
 function buildGreeting(role: AssistantRole): AssistantMessage {
   const isAdmin = role === 'admin';
@@ -632,6 +860,7 @@ function buildLocalSchedulePlan(
 export default function AIAssistant({ role, open, onOpenChange }: AIAssistantProps) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { stageRef, startDrag, moveByKey, consumeClick, resetPosition, isDragging } = useAssistantDrag(role, open);
   const [messages, setMessages] = useState<AssistantMessage[]>(() => readStoredMessages(role));
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -970,7 +1199,10 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
       </AnimatePresence>
 
       {!open && (
-        <div className="ai-assistant-launcher fixed bottom-5 right-5 z-[120]">
+        <div
+          ref={stageRef}
+          className={`ai-assistant-launcher fixed bottom-5 right-5 z-[120] ${isDragging ? 'assistant-is-dragging' : ''}`}
+        >
           <AnimatePresence>
             {clockOpen && (
               <motion.div
@@ -991,9 +1223,16 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
 
           <div className="relative rounded-2xl border border-cyan-300/15 bg-slate-950/90 p-2 shadow-2xl shadow-cyan-950/40 backdrop-blur">
             <button
-              onClick={() => onOpenChange(true)}
-              className="assistant-mascot-shell flex h-[78px] w-[66px] items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-500/[0.04] transition hover:border-cyan-200/35 hover:bg-cyan-500/[0.08]"
+              onPointerDown={startDrag}
+              onKeyDown={moveByKey}
+              onDoubleClick={resetPosition}
+              onClick={() => {
+                if (consumeClick()) return;
+                onOpenChange(true);
+              }}
+              className="assistant-mascot-shell assistant-drag-surface flex h-[78px] w-[66px] items-center justify-center rounded-xl border border-cyan-300/15 bg-cyan-500/[0.04] transition hover:border-cyan-200/35 hover:bg-cyan-500/[0.08]"
               aria-label="Buka Nexus AI"
+              title="Klik untuk membuka. Seret untuk memindahkan. Tombol panah untuk menggeser."
             >
               <AssistantMascot compact />
             </button>
@@ -1010,14 +1249,21 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
 
       <AnimatePresence>
         {open && (
-          <motion.aside
-            initial={{ opacity: 0, y: 18, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 18, scale: 0.98 }}
-            transition={{ duration: 0.18 }}
-            className="ai-assistant-panel fixed bottom-5 right-5 z-[130] flex h-[min(790px,calc(100vh-40px))] w-[min(520px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-950/95 shadow-2xl shadow-black/50 backdrop-blur"
+          <div
+            ref={stageRef}
+            className={`ai-assistant-panel-stage fixed bottom-5 right-5 z-[130] ${isDragging ? 'assistant-is-dragging' : ''}`}
           >
-            <header className="border-b border-slate-800 bg-slate-900/80 p-4">
+            <motion.aside
+              initial={{ opacity: 0, y: 18, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 18, scale: 0.98 }}
+              transition={{ duration: 0.18 }}
+              className="ai-assistant-panel relative flex h-[min(790px,calc(100vh-40px))] w-[min(520px,calc(100vw-32px))] flex-col overflow-hidden rounded-xl border border-slate-700 bg-slate-950/95 shadow-2xl shadow-black/50 backdrop-blur"
+            >
+            <header
+              onPointerDown={startDrag}
+              className="assistant-drag-surface border-b border-slate-800 bg-slate-900/80 p-4"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="assistant-mascot-shell shrink-0 rounded-xl border border-cyan-300/20 bg-cyan-500/10 p-1">
@@ -1037,6 +1283,17 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onPointerDown={startDrag}
+                    onKeyDown={moveByKey}
+                    onDoubleClick={resetPosition}
+                    className="assistant-drag-handle rounded-lg p-2 text-slate-500 transition hover:bg-slate-800 hover:text-white"
+                    aria-label="Pindahkan Nexus AI"
+                    title="Seret untuk memindahkan. Tombol panah untuk menggeser. Klik dua kali untuk mengembalikan posisi."
+                  >
+                    <Move className="h-4 w-4" />
+                  </button>
                   <button
                     onClick={() => setVoiceEnabled((value) => !value)}
                     className="rounded-lg p-2 text-slate-500 transition hover:bg-slate-800 hover:text-white"
@@ -1507,7 +1764,8 @@ export default function AIAssistant({ role, open, onOpenChange }: AIAssistantPro
                 )}
               </div>
             )}
-          </motion.aside>
+            </motion.aside>
+          </div>
         )}
       </AnimatePresence>
     </>

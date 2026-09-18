@@ -34,7 +34,7 @@ export default function DpaDirectory() {
   const [dpas, setDpas] = useState<DpaCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [joiningId, setJoiningId] = useState<number | null>(null);
+  const [mappingRequired, setMappingRequired] = useState(false);
   const [rateTarget, setRateTarget] = useState<{ id: number; stars: number } | null>(null);
   const [savingStars, setSavingStars] = useState(false);
   const [commentDraft, setCommentDraft] = useState<Record<number, string>>({});
@@ -45,6 +45,7 @@ export default function DpaDirectory() {
       const res = await api.get('/dpa/directory');
       const list: DpaCard[] = res.data.dpa_list ?? [];
       setDpas(list);
+      setMappingRequired(Boolean(res.data.mapping_required));
       const drafts: Record<number, string> = {};
       list.forEach((c) => {
         if (c.is_my_dpa) drafts[c.id] = c.my_comment || '';
@@ -66,20 +67,6 @@ export default function DpaDirectory() {
     const timeout = setTimeout(() => setNotice(''), 4000);
     return () => clearTimeout(timeout);
   }, [notice]);
-
-  const joinGroup = async (dpa: DpaCard) => {
-    setJoiningId(dpa.id);
-    try {
-      const res = await api.post(`/student/join-dpa/${dpa.id}`);
-      setNotice(res.data.message || 'Anda tergabung di grup bimbingan.');
-      await fetchDirectory();
-      navigate('/user/grup-bimbingan');
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Gagal bergabung ke grup bimbingan.');
-    } finally {
-      setJoiningId(null);
-    }
-  };
 
   const saveStars = async (dpaId: number, stars: number, comment?: string) => {
     setSavingStars(true);
@@ -112,7 +99,7 @@ export default function DpaDirectory() {
         <DpaPageHeader
           eyebrow="Dosen Pembimbing Akademik"
           title="DPA Pembimbing Saya"
-          description="Kenali dosen pembimbing akademik (DPA) di UMCI, bergabung ke grup bimbingan, dan beri penilaian bintang atas performa pembimbingan."
+          description="Lihat DPA sesuai program studi Anda, buka grup bimbingan yang sudah ditetapkan, dan beri penilaian atas pembimbingan."
           icon={GraduationCap}
         />
 
@@ -133,8 +120,8 @@ export default function DpaDirectory() {
         ) : dpas.length === 0 ? (
           <div className="rounded-2xl border border-white/10 bg-slate-950/70 p-10 text-center shadow-xl shadow-black/10">
             <GraduationCap className="mx-auto h-10 w-10 text-slate-600" />
-            <p className="mt-3 text-sm font-semibold text-slate-300">Belum ada akun DPA terdaftar</p>
-            <p className="mt-1 text-xs text-slate-500">Kaprodi akan menambahkan dosen pembimbing lewat Manajemen User.</p>
+            <p className="mt-3 text-sm font-semibold text-slate-300">{mappingRequired ? 'Program studi belum terpetakan' : 'Belum ada akun DPA terdaftar'}</p>
+            <p className="mt-1 text-xs text-slate-500">{mappingRequired ? 'Hubungi Kaprodi atau admin kampus untuk melengkapi pemetaan akun Anda.' : 'Kaprodi akan menambahkan dosen pembimbing lewat Manajemen User.'}</p>
           </div>
         ) : (
           <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -230,14 +217,9 @@ export default function DpaDirectory() {
                         Buka Grup Bimbingan
                       </button>
                     ) : (
-                      <button
-                        onClick={() => joinGroup(dpa)}
-                        disabled={joiningId !== null}
-                        className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-indigo-300/30 bg-indigo-400/10 px-4 text-sm font-semibold text-indigo-100 transition hover:bg-indigo-400/20 disabled:opacity-60"
-                      >
-                        {joiningId === dpa.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquareText className="h-4 w-4" />}
-                        Gabung Grup Bimbingan
-                      </button>
+                      <div className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2.5 text-center text-[11px] leading-4 text-slate-400">
+                        Penetapan DPA dilakukan oleh Kaprodi atau admin kampus.
+                      </div>
                     )}
                   </div>
                 </article>
@@ -247,7 +229,7 @@ export default function DpaDirectory() {
         )}
 
         <p className="text-center text-[11px] leading-5 text-slate-600">
-          Satu mahasiswa tergabung pada satu grup bimbingan. Bergabung ke dosen lain berarti berpindah grup bimbingan, dan Kaprodi tetap dapat melihat pemetaannya.
+          Mahasiswa hanya dapat membuka grup bimbingan yang sudah ditetapkan oleh Kaprodi atau admin kampus.
         </p>
       </div>
     </main>

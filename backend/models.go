@@ -9,31 +9,44 @@ import (
 type User struct {
 	gorm.Model
 	Username     string `gorm:"uniqueIndex;size:191"`
+	Email        string `gorm:"size:191;index"`
 	PasswordHash string
 	Nama         string
 	Role         string `gorm:"default:student"`
 	Bio          string
 	ProfilePic   string
 	// Profil akademik mahasiswa (diisi Kaprodi/superadmin)
-	Nim       string  `gorm:"size:32;index"`
-	Prodi     string  `gorm:"size:128;index"`
-	Angkatan  string  `gorm:"size:8;index"`
-	Semester  int     `gorm:"default:0"`
-	Ipk       float64 `gorm:"default:0"`
-	Ips       float64 `gorm:"default:0"`
-	Sks       int     `gorm:"default:0"`
-	Kehadiran float64 `gorm:"default:0"`
+	Nim            string  `gorm:"size:32;index"`
+	Prodi          string  `gorm:"size:128;index"` // kompatibilitas data lama; ProgramStudiID adalah sumber utama.
+	ProgramStudiID uint    `gorm:"index;default:0"`
+	Angkatan       string  `gorm:"size:8;index"`
+	Semester       int     `gorm:"default:0"`
+	Ipk            float64 `gorm:"default:0"`
+	Ips            float64 `gorm:"default:0"`
+	Sks            int     `gorm:"default:0"`
+	Kehadiran      float64 `gorm:"default:0"`
 	// Profil dosen (DPA), diisi sendiri oleh DPA
 	Nip   string `gorm:"size:32"`
 	Phone string `gorm:"size:32"`
 	// Mapping mahasiswa ke DPA bimbingannya
-	DpaID uint `gorm:"index;default:0"`
+	DpaID                  uint `gorm:"index;default:0"`
 	Assessments            []Assessment
 	HappinessAssessments   []HappinessAssessment
 	MBTIResults            []MBTIResult
 	Curhats                []Curhat
 	Predictions            []Prediction
 	TherapyRecommendations []TherapyRecommendation
+}
+
+// ProgramStudi adalah daftar resmi program studi UMCI yang dipakai untuk
+// pemetaan mahasiswa, DPA, dan Kaprodi. Kode dibuat stabil agar aman dipakai
+// pada import data dan integrasi di masa depan.
+type ProgramStudi struct {
+	gorm.Model
+	Code     string `gorm:"uniqueIndex;size:64"`
+	Name     string `gorm:"size:128;index"`
+	Degree   string `gorm:"size:16"`
+	IsActive bool   `gorm:"default:true;index"`
 }
 
 type Follow struct {
@@ -284,27 +297,27 @@ type ActivityLog struct {
 
 type HappinessAssessment struct {
 	gorm.Model
-	UserID             uint `gorm:"index"`
-	ResponsesJSON      string `gorm:"type:longtext"`
-	AcademicScore      float64
-	MotivationScore    float64
-	SocialScore        float64
-	LecturerScore      float64
-	EnvironmentScore   float64
-	FacilitiesScore    float64
-	HappinessIndex     float64
-	Category           string `gorm:"size:32;index"`
-	Timestamp          time.Time `gorm:"autoCreateTime"`
+	UserID           uint   `gorm:"index"`
+	ResponsesJSON    string `gorm:"type:longtext"`
+	AcademicScore    float64
+	MotivationScore  float64
+	SocialScore      float64
+	LecturerScore    float64
+	EnvironmentScore float64
+	FacilitiesScore  float64
+	HappinessIndex   float64
+	Category         string    `gorm:"size:32;index"`
+	Timestamp        time.Time `gorm:"autoCreateTime"`
 }
 
 // DpaNote adalah catatan monitoring akademik yang dibuat DPA
 // untuk mahasiswa bimbingannya.
 type DpaNote struct {
 	gorm.Model
-	DpaID     uint `gorm:"index"`
-	StudentID uint `gorm:"index"`
-	Note      string `gorm:"type:text"`
-	Status    string `gorm:"size:32;default:normal;index"`
+	DpaID     uint      `gorm:"index"`
+	StudentID uint      `gorm:"index"`
+	Note      string    `gorm:"type:text"`
+	Status    string    `gorm:"size:32;default:normal;index"`
 	Timestamp time.Time `gorm:"autoCreateTime"`
 }
 
@@ -312,15 +325,15 @@ type DpaNote struct {
 // Satu DPA = satu grup; SenderID menunjuk pengirim (DPA atau student).
 type DpaMessage struct {
 	gorm.Model
-	DpaID          uint `gorm:"index"`
-	SenderID       uint `gorm:"index"`
-	SenderRole     string `gorm:"size:16"` // dpa | student
-	MsgType        string `gorm:"size:16;default:text;index"` // text | image | file | poll
-	Body           string `gorm:"type:text"`
-	AttachmentName string `gorm:"size:255"`
-	AttachmentType string `gorm:"size:100"`
-	AttachmentData string `gorm:"type:longtext"` // base64, dibaca via endpoint lampiran
-	PollID         uint   `gorm:"index"`         // terisi bila MsgType = poll
+	DpaID          uint      `gorm:"index"`
+	SenderID       uint      `gorm:"index"`
+	SenderRole     string    `gorm:"size:16"`                    // dpa | student
+	MsgType        string    `gorm:"size:16;default:text;index"` // text | image | file | poll
+	Body           string    `gorm:"type:text"`
+	AttachmentName string    `gorm:"size:255"`
+	AttachmentType string    `gorm:"size:100"`
+	AttachmentData string    `gorm:"type:longtext"` // base64, dibaca via endpoint lampiran
+	PollID         uint      `gorm:"index"`         // terisi bila MsgType = poll
 	Timestamp      time.Time `gorm:"autoCreateTime"`
 }
 
@@ -368,9 +381,9 @@ type Bimbingan struct {
 	Ips        float64
 	Sks        int
 	Kehadiran  float64
-	Keluhan    string `gorm:"type:text"`
-	Status     string `gorm:"size:16;default:pending;index"` // pending | verified | rejected
-	RecordedBy string `gorm:"size:16"`                       // student | dpa
+	Keluhan    string    `gorm:"type:text"`
+	Status     string    `gorm:"size:16;default:pending;index"` // pending | verified | rejected
+	RecordedBy string    `gorm:"size:16"`                       // student | dpa
 	Timestamp  time.Time `gorm:"autoCreateTime"`
 }
 
@@ -420,19 +433,19 @@ type DpaFollowUp struct {
 // kondisi real-time mahasiswa (burnout, happiness, warning aktif).
 type DpaReferral struct {
 	gorm.Model
-	DpaID         uint `gorm:"index"`
-	StudentID     uint `gorm:"index"`
-	PredictionID  uint
-	ReferralType  string `gorm:"size:32"`
-	Destination   string `gorm:"size:191"`
-	Priority      string `gorm:"size:16;default:sedang"`
-	Reason        string `gorm:"type:text"`
+	DpaID          uint `gorm:"index"`
+	StudentID      uint `gorm:"index"`
+	PredictionID   uint
+	ReferralType   string `gorm:"size:32"`
+	Destination    string `gorm:"size:191"`
+	Priority       string `gorm:"size:16;default:sedang"`
+	Reason         string `gorm:"type:text"`
 	Recommendation string `gorm:"type:text"`
-	Status        string `gorm:"size:16;default:diproses;index"`
-	FollowUpDate  *time.Time
-	BurnoutScore  float64
+	Status         string `gorm:"size:16;default:diproses;index"`
+	FollowUpDate   *time.Time
+	BurnoutScore   float64
 	HappinessIndex float64
-	Timestamp     time.Time `gorm:"autoCreateTime"`
+	Timestamp      time.Time `gorm:"autoCreateTime"`
 }
 
 type SystemConfig struct {
@@ -456,13 +469,13 @@ type SystemConfig struct {
 	BimbinganMinUTS int `gorm:"default:4"`
 	BimbinganMinUAS int `gorm:"default:8"`
 	// Bobot Happiness Index (total = 1.0)
-	HiWeightAcademic   float64 `gorm:"default:0.25"`
-	HiWeightMotivation float64 `gorm:"default:0.20"`
-	HiWeightSocial     float64 `gorm:"default:0.20"`
+	HiWeightAcademic    float64 `gorm:"default:0.25"`
+	HiWeightMotivation  float64 `gorm:"default:0.20"`
+	HiWeightSocial      float64 `gorm:"default:0.20"`
 	HiWeightEnvironment float64 `gorm:"default:0.15"`
-	HiWeightLecturer   float64 `gorm:"default:0.10"`
-	HiWeightFacilities float64 `gorm:"default:0.10"`
+	HiWeightLecturer    float64 `gorm:"default:0.10"`
+	HiWeightFacilities  float64 `gorm:"default:0.10"`
 	// Ambang early warning well-being
-	WellbeingWarnBurnoutRise  float64 `gorm:"default:1.0"`
+	WellbeingWarnBurnoutRise   float64 `gorm:"default:1.0"`
 	WellbeingWarnHappinessDrop float64 `gorm:"default:10"`
 }

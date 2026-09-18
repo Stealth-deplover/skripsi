@@ -259,10 +259,15 @@ func backfillLegacyQuantumMetrics() {
 }
 
 func loadTrainingSamples() []TrainingSample {
+	return loadTrainingSamplesForProgram(0)
+}
+
+func loadTrainingSamplesForProgram(programID uint) []TrainingSample {
 	var assessments []Assessment
 	var predictions []Prediction
-	DB.Order("timestamp ASC").Find(&assessments)
-	DB.Order("timestamp ASC").Find(&predictions)
+	studentScope := studentSubqueryForProgram(programID)
+	DB.Where("user_id IN (?)", studentScope).Order("timestamp ASC").Find(&assessments)
+	DB.Where("user_id IN (?)", studentScope).Order("timestamp ASC").Find(&predictions)
 
 	predictionByAssessment := make(map[uint]Prediction)
 	predictionsByUser := make(map[uint][]Prediction)

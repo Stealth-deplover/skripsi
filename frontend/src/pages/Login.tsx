@@ -10,7 +10,7 @@ const features = [
   { Icon: Brain, t: 'Quantum Cognition', d: 'Memodelkan ketidakpastian dan pengambilan keputusan manusia secara probabilistik.' },
   { Icon: TrendingUp, t: 'Regresi Linier', d: 'Prediksi numerik yang interpretable dan mudah diimplementasikan.' },
   { Icon: RefreshCw, t: 'Agile Development', d: 'Iteratif, adaptif, dan kolaboratif untuk hasil yang berkualitas.' },
-  { Icon: ShieldCheck, t: 'Keamanan Data', d: 'Data Anda aman bersama kami dengan enkripsi tingkat enterprise.' },
+  { Icon: ShieldCheck, t: 'Kontrol Akses', d: 'Akses informasi disesuaikan dengan peran dan program studi Anda.' },
 ];
 const defaultStats = [
   { Icon: Users, v: '-', l: 'Total Pengguna' },
@@ -198,10 +198,10 @@ export default function Login() {
 
             <form onSubmit={submit}>
               <div className="field">
-                <label>Username</label>
+                <label>Email atau username</label>
                 <div className="wrap">
                   <Mail size={14} className="icon-l" />
-                  <input type="text" value={u} onChange={e => setU(e.target.value)} placeholder="Masukkan username Anda" required />
+                  <input type="text" value={u} onChange={e => setU(e.target.value)} placeholder="Masukkan email atau username" autoComplete="username" required />
                 </div>
               </div>
               <div className="field">
@@ -237,7 +237,7 @@ export default function Login() {
                 onAuthenticated={(token, user) => {
                   localStorage.setItem('token', token);
                   localStorage.setItem('user', JSON.stringify(user));
-                  nav(user.role === 'admin' ? '/dashboard' : '/user/dashboard');
+                  nav(homePathForRole(normalizeRole(user?.role)));
                 }}
               />
             </div>

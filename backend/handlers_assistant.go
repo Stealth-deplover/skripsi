@@ -157,7 +157,7 @@ func buildAssistantContextResponse(user User) AssistantContextResponse {
 		Actions:     actions,
 	}
 
-	if user.Role == RoleSuperadmin {
+	if normalizeRole(user.Role) == RoleSuperadmin {
 		now := time.Now()
 		startOfDay := startOfLocalDay(now)
 		var respondents int64
@@ -172,21 +172,23 @@ func buildAssistantContextResponse(user User) AssistantContextResponse {
 		var postsToday int64
 		var curhatsToday int64
 		var usersWithPrediction int64
-		DB.Model(&User{}).Where("role = ?", RoleStudent).Count(&respondents)
-		DB.Model(&User{}).Where("role = ?", RoleStudent).Count(&students)
-		DB.Model(&TherapyRecommendation{}).Where("status = ?", "pending").Count(&pendingTreatments)
-		DB.Model(&TherapyRecommendation{}).Where("status = ? AND follow_up_date IS NOT NULL AND follow_up_date <= ?", "pending", now).Count(&overdueFollowUps)
-		DB.Model(&TreatmentReply{}).Where("admin_seen = ?", false).Count(&unseenReplies)
-		DB.Model(&Prediction{}).Count(&totalPredictions)
-		DB.Model(&Assessment{}).Where("timestamp >= ?", startOfDay).Count(&assessmentsToday)
-		DB.Model(&Notification{}).Where("is_read = ?", false).Count(&unreadNotifications)
-		DB.Model(&Post{}).Where("timestamp >= ?", startOfDay).Count(&postsToday)
-		DB.Model(&Curhat{}).Where("timestamp >= ?", startOfDay).Count(&curhatsToday)
-		DB.Model(&Prediction{}).Distinct("user_id").Count(&usersWithPrediction)
+		studentScope := scopedStudentSubquery(user)
+		DB.Model(&User{}).Where("id IN (?)", studentScope).Count(&respondents)
+		DB.Model(&User{}).Where("id IN (?)", studentScope).Count(&students)
+		DB.Model(&TherapyRecommendation{}).Where("user_id IN (?) AND status = ?", studentScope, "pending").Count(&pendingTreatments)
+		DB.Model(&TherapyRecommendation{}).Where("user_id IN (?) AND status = ? AND follow_up_date IS NOT NULL AND follow_up_date <= ?", studentScope, "pending", now).Count(&overdueFollowUps)
+		DB.Model(&TreatmentReply{}).Where("user_id IN (?) AND admin_seen = ?", studentScope, false).Count(&unseenReplies)
+		DB.Model(&Prediction{}).Where("user_id IN (?)", studentScope).Count(&totalPredictions)
+		DB.Model(&Assessment{}).Where("user_id IN (?) AND timestamp >= ?", studentScope, startOfDay).Count(&assessmentsToday)
+		DB.Model(&Notification{}).Where("user_id IN (?) AND is_read = ?", userSubqueryForProgram(adminProgramScope(user)), false).Count(&unreadNotifications)
+		DB.Model(&Post{}).Where("user_id IN (?) AND timestamp >= ?", studentScope, startOfDay).Count(&postsToday)
+		DB.Model(&Curhat{}).Where("user_id IN (?) AND timestamp >= ?", studentScope, startOfDay).Count(&curhatsToday)
+		DB.Model(&Prediction{}).Where("user_id IN (?)", studentScope).Distinct("user_id").Count(&usersWithPrediction)
 		DB.Model(&Prediction{}).
 			Where("id IN (?)",
 				DB.Model(&Prediction{}).
 					Select("MAX(id)").
+					Where("user_id IN (?)", studentScope).
 					Group("user_id"),
 			).
 			Where("risk_level IN ?", []string{"High", "Crisis"}).
@@ -384,7 +386,7 @@ func buildAssistantContextResponse(user User) AssistantContextResponse {
 }
 
 func assistantActionsForRole(role string) []AssistantAction {
-	if role == RoleSuperadmin {
+	if normalizeRole(role) == RoleSuperadmin {
 		return []AssistantAction{
 			{Label: "Dashboard", Path: "/dashboard", Description: "Ringkasan operasional admin"},
 			{Label: "Data Responden", Path: "/responden", Description: "Pantau responden dan balasan terapi"},

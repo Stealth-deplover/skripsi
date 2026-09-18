@@ -33,6 +33,7 @@ func UserHistoryHandler(c *gin.Context) {
 
 func UserProfileGetHandler(c *gin.Context) {
 	user := c.MustGet("user").(User)
+	program, hasProgram := programStudiForUser(user)
 
 	var followerCount int64
 	DB.Model(&Follow{}).Where("following_id = ?", user.ID).Count(&followerCount)
@@ -41,15 +42,22 @@ func UserProfileGetHandler(c *gin.Context) {
 	DB.Model(&Follow{}).Where("follower_id = ?", user.ID).Count(&followingCount)
 
 	response := gin.H{
-		"id":              user.ID,
-		"username":        user.Username,
-		"nama":            user.Nama,
-		"bio":             user.Bio,
-		"profile_pic":     user.ProfilePic,
-		"nip":             user.Nip,
-		"phone":           user.Phone,
-		"follower_count":  followerCount,
-		"following_count": followingCount,
+		"id":               user.ID,
+		"username":         user.Username,
+		"email":            user.Email,
+		"nama":             user.Nama,
+		"nim":              user.Nim,
+		"prodi":            user.Prodi,
+		"program_studi_id": user.ProgramStudiID,
+		"bio":              user.Bio,
+		"profile_pic":      user.ProfilePic,
+		"nip":              user.Nip,
+		"phone":            user.Phone,
+		"follower_count":   followerCount,
+		"following_count":  followingCount,
+	}
+	if hasProgram {
+		response["program_studi"] = gin.H{"id": program.ID, "code": program.Code, "name": program.Name, "degree": program.Degree, "label": programStudiLabel(program)}
 	}
 	c.JSON(http.StatusOK, response)
 }

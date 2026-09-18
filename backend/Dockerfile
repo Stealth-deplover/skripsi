@@ -9,6 +9,5 @@ FROM alpine:latest
 RUN apk add --no-cache ca-certificates wget
 WORKDIR /app
 COPY --from=build /app/server .
-COPY .env.example .env
 EXPOSE 8080
 CMD ["./server"]

@@ -172,11 +172,11 @@ func imageDataForCurhat(attachmentType string, attachmentData string) string {
 func buildCurhatSystemContext(user User) string {
 	context := map[string]interface{}{
 		"profile": map[string]interface{}{
-			"user_id":   user.ID,
-			"nama":      user.Nama,
-			"username":  user.Username,
-			"role":      user.Role,
-			"bio":       truncateString(user.Bio, 260),
+			"user_id":  user.ID,
+			"nama":     user.Nama,
+			"username": user.Username,
+			"role":     user.Role,
+			"bio":      truncateString(user.Bio, 260),
 		},
 	}
 	agentEvidence := []string{fmt.Sprintf("User teridentifikasi dengan role %s.", firstNonEmpty(user.Role, "user"))}
@@ -412,11 +412,15 @@ func buildCurhatSystemContext(user User) string {
 }
 
 func AdminCurhatAnalysisHandler(c *gin.Context) {
+	if !AdminGuard(c) {
+		return
+	}
+	actor := c.MustGet("user").(User)
 	status := strings.TrimSpace(c.Query("status"))
 	priority := strings.TrimSpace(c.Query("priority"))
 	risk := strings.TrimSpace(c.Query("risk"))
 
-	query := DB.Model(&Curhat{}).Where("risk_level <> ''")
+	query := DB.Model(&Curhat{}).Where("user_id IN (?) AND risk_level <> ''", scopedStudentSubquery(actor))
 	if status != "" && status != "all" {
 		query = query.Where("admin_status = ?", status)
 	}
@@ -512,6 +516,9 @@ func AdminCurhatAnalysisHandler(c *gin.Context) {
 }
 
 func AdminCurhatAnalysisStatusHandler(c *gin.Context) {
+	if !AdminGuard(c) {
+		return
+	}
 	id := c.Param("id")
 	var input struct {
 		Status string `json:"status" binding:"required"`
@@ -531,6 +538,9 @@ func AdminCurhatAnalysisStatusHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Analisis curhat tidak ditemukan"})
 		return
 	}
+	if !requireAdminUserAccessByID(c, curhat.UserID) {
+		return
+	}
 	curhat.AdminStatus = status
 	DB.Save(&curhat)
 	c.JSON(http.StatusOK, gin.H{"status": "success", "curhat": curhat})
@@ -541,7 +551,11 @@ func notifyAdminsForCurhatAnalysis(user User, curhat Curhat, analysis CurhatClin
 		return
 	}
 	var admins []User
-	DB.Where("role = ?", RoleSuperadmin).Find(&admins)
+	adminQuery := DB.Where("role = ?", RoleSuperadmin)
+	if user.ProgramStudiID > 0 {
+		adminQuery = adminQuery.Where("program_studi_id = ?", user.ProgramStudiID)
+	}
+	adminQuery.Find(&admins)
 	for _, admin := range admins {
 		DB.Create(&Notification{
 			UserID:  admin.ID,

@@ -12,8 +12,17 @@ import (
 // ExportDpaRatingPDFHandler Kaprodi export laporan rating DPA (HTML yang siap print PDF)
 func ExportDpaRatingPDFHandler(c *gin.Context) {
 	// pakai data sama dengan SuperadminDpaRatingsHandler tapi render HTML
+	actor := c.MustGet("user").(User)
 	var dpas []User
-	DB.Where("role = ?", RoleDPA).Order("nama ASC").Find(&dpas)
+	dpaQuery := DB.Where("role = ?", RoleDPA)
+	if adminProgramScope(actor) > 0 {
+		dpaQuery = dpaQuery.Where("program_studi_id = ?", actor.ProgramStudiID)
+	}
+	dpaQuery.Order("nama ASC").Find(&dpas)
+	dpaIDs := make([]uint, 0, len(dpas))
+	for _, dpa := range dpas {
+		dpaIDs = append(dpaIDs, dpa.ID)
+	}
 
 	type Agg struct {
 		DpaID   uint
@@ -21,21 +30,33 @@ func ExportDpaRatingPDFHandler(c *gin.Context) {
 		Avg     float64
 	}
 	var aggs []Agg
-	DB.Model(&DpaRating{}).Select("dpa_id, COUNT(*) as rated_by, AVG(stars) as avg").Group("dpa_id").Scan(&aggs)
+	aggQuery := DB.Model(&DpaRating{}).Select("dpa_id, COUNT(*) as rated_by, AVG(stars) as avg").Group("dpa_id")
+	if adminProgramScope(actor) > 0 {
+		aggQuery = aggQuery.Where("dpa_id IN ?", dpaIDs)
+	}
+	aggQuery.Scan(&aggs)
 	aggMap := map[uint]Agg{}
 	for _, a := range aggs {
 		aggMap[a.DpaID] = a
 	}
 
 	var totalRatings int64
-	DB.Model(&DpaRating{}).Count(&totalRatings)
+	totalQuery := DB.Model(&DpaRating{})
+	if adminProgramScope(actor) > 0 {
+		totalQuery = totalQuery.Where("dpa_id IN ?", dpaIDs)
+	}
+	totalQuery.Count(&totalRatings)
 
 	// build HTML
 	var rowsHTML strings.Builder
 	for _, dpa := range dpas {
 		agg := aggMap[dpa.ID]
 		advCount := int64(0)
-		DB.Model(&User{}).Where("dpa_id = ? AND role = ?", dpa.ID, RoleStudent).Count(&advCount)
+		adviseeQuery := DB.Model(&User{}).Where("dpa_id = ? AND role = ?", dpa.ID, RoleStudent)
+		if scope := adminProgramScope(actor); scope > 0 {
+			adviseeQuery = adviseeQuery.Where("program_studi_id = ?", scope)
+		}
+		adviseeQuery.Count(&advCount)
 		avgStr := "-"
 		if agg.RatedBy > 0 {
 			avgStr = fmt.Sprintf("%.2f", agg.Avg)
@@ -82,10 +103,18 @@ func BimbinganReminderHandler(c *gin.Context) {
 		Semester    string `json:"semester"`
 	}
 	var students []User
-	DB.Where("role = ?", RoleStudent).Find(&students)
+	studentQuery := DB.Where("role = ?", RoleStudent)
+	if actor := c.MustGet("user").(User); adminProgramScope(actor) > 0 {
+		studentQuery = studentQuery.Where("program_studi_id = ?", actor.ProgramStudiID)
+	}
+	studentQuery.Find(&students)
 	dpaNames := map[uint]string{}
 	var dpas []User
-	DB.Where("role = ?", RoleDPA).Find(&dpas)
+	dpaQuery := DB.Where("role = ?", RoleDPA)
+	if actor := c.MustGet("user").(User); adminProgramScope(actor) > 0 {
+		dpaQuery = dpaQuery.Where("program_studi_id = ?", actor.ProgramStudiID)
+	}
+	dpaQuery.Find(&dpas)
 	for _, d := range dpas {
 		dpaNames[d.ID] = d.Nama
 	}

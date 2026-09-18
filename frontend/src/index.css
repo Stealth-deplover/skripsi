@@ -107,6 +107,42 @@ html.light-mode {
   max-width: 100%;
 }
 
+/* Nexus AI uses a single transform layer for drag, keeping the panel's
+   responsive dimensions independent from its saved position. */
+.ai-assistant-launcher,
+.ai-assistant-panel-stage {
+  will-change: transform;
+}
+
+.ai-assistant-panel-stage {
+  width: min(520px, calc(100vw - 32px));
+}
+
+.assistant-drag-surface {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.assistant-drag-handle {
+  min-width: 44px;
+  min-height: 44px;
+  cursor: grab;
+  touch-action: none;
+}
+
+.assistant-is-dragging,
+.assistant-is-dragging .assistant-drag-surface,
+.assistant-is-dragging .assistant-drag-handle {
+  cursor: grabbing;
+}
+
+.assistant-drag-handle:focus-visible,
+.assistant-drag-surface:focus-visible {
+  outline: 2px solid #22d3ee;
+  outline-offset: 3px;
+}
+
 @media (max-width: 1023px) {
   .app-shell {
     display: block;
@@ -254,6 +290,11 @@ html.light-mode {
     max-height: calc(100dvh - 24px) !important;
     border-radius: 16px !important;
   }
+
+  .ai-assistant-panel-stage {
+    inset: auto 8px 8px 8px !important;
+    width: auto !important;
+  }
 }
 
 @media (max-width: 640px) {
@@ -296,6 +337,11 @@ html.light-mode {
     height: calc(100dvh - 12px) !important;
     max-height: calc(100dvh - 12px) !important;
     border-radius: 18px 18px 0 0 !important;
+  }
+
+  .ai-assistant-panel-stage {
+    inset: auto 0 0 0 !important;
+    width: auto !important;
   }
 
   .ai-assistant-launcher .assistant-mascot-shell {

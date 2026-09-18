@@ -15,6 +15,7 @@ func main() {
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, using system environment variables")
 	}
+	configureJWTKey()
 	ConnectDatabase()
 
 	r := gin.Default()
@@ -47,6 +48,7 @@ func main() {
 	{
 		api.GET("/health", HealthHandler)
 		api.GET("/public/overview", PublicOverviewHandler)
+		api.GET("/public/program-studi", PublicProgramStudiHandler)
 
 		// Auth Routes
 		api.POST("/register", RegisterHandler)
@@ -174,7 +176,6 @@ func main() {
 			sse.Use(RequireRole(RoleStudent, RoleDPA))
 			sse.GET("/dpa/chat/stream", DpaChatStreamHandler)
 			sse.GET("/dpa/chat/attachments/:id", DpaChatAttachmentHandler)
-
 
 			// Akses token query-param untuk staf (unduh dokumen laporan
 			// lewat elemen a yang tidak bisa mengirim header Authorization).

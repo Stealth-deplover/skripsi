@@ -45,13 +45,15 @@ func StudentTherapyOutcomeHandler(c *gin.Context) {
 
 // TherapyEffectivenessHandler Kaprodi lihat agregat efektivitas terapi
 func TherapyEffectivenessHandler(c *gin.Context) {
+	actor := c.MustGet("user").(User)
+	studentScope := scopedStudentSubquery(actor)
 	type Agg struct {
 		Category string
 		AvgScore float64
 		Count    int64
 	}
 	var aggs []Agg
-	DB.Model(&TherapyRecommendation{}).Select("category, AVG(outcome_score) as avg_score, COUNT(*) as count").Where("outcome_score IS NOT NULL").Group("category").Scan(&aggs)
+	DB.Model(&TherapyRecommendation{}).Select("category, AVG(outcome_score) as avg_score, COUNT(*) as count").Where("user_id IN (?) AND outcome_score IS NOT NULL", studentScope).Group("category").Scan(&aggs)
 	total := 0.0
 	cnt := int64(0)
 	for _, a := range aggs {
@@ -63,9 +65,9 @@ func TherapyEffectivenessHandler(c *gin.Context) {
 		overall = total / float64(cnt)
 	}
 	var pending int64
-	DB.Model(&TherapyRecommendation{}).Where("status = ?", "pending").Count(&pending)
+	DB.Model(&TherapyRecommendation{}).Where("user_id IN (?) AND status = ?", studentScope, "pending").Count(&pending)
 	var done int64
-	DB.Model(&TherapyRecommendation{}).Where("outcome_score IS NOT NULL").Count(&done)
+	DB.Model(&TherapyRecommendation{}).Where("user_id IN (?) AND outcome_score IS NOT NULL", studentScope).Count(&done)
 	c.JSON(http.StatusOK, gin.H{
 		"by_category": aggs,
 		"overall_avg": round2(overall),

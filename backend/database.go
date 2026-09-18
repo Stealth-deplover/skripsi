@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"strings"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -29,6 +31,7 @@ func ConnectDatabase() {
 
 	err = database.AutoMigrate(
 		&User{},
+		&ProgramStudi{},
 		&Assessment{},
 		&HappinessAssessment{},
 		&DpaNote{},
@@ -70,11 +73,13 @@ func ConnectDatabase() {
 	DB = database
 
 	migrateRoles()
+	SeedProgramStudi()
 	SeedAdmin()
 	SeedSuperadmin()
 	SeedStaff()
 	NormalizeSystemConfig()
 	backfillLegacyQuantumMetrics()
+	SeedDemoData()
 }
 
 // migrateRoles mengonversi role lama (admin/user) ke role baru
@@ -83,74 +88,101 @@ func migrateRoles() {
 	if err := DB.Model(&User{}).Where("role = ?", "user").Update("role", RoleStudent).Error; err != nil {
 		log.Println("Migrasi role user->student gagal:", err)
 	}
-	if err := DB.Model(&User{}).Where("role = ?", "admin").Update("role", RoleDPA).Error; err != nil {
-		log.Println("Migrasi role admin->dpa gagal:", err)
+	if err := DB.Model(&User{}).Where("role IN ?", []string{"admin", "dosen"}).Update("role", RoleDPA).Error; err != nil {
+		log.Println("Migrasi role admin/dosen->dpa gagal:", err)
+	}
+	if err := DB.Model(&User{}).Where("role = ?", "kaprodi").Update("role", RoleSuperadmin).Error; err != nil {
+		log.Println("Migrasi role kaprodi->superadmin gagal:", err)
+	}
+	if err := DB.Model(&User{}).Where("role = ?", "staf").Update("role", RoleStaff).Error; err != nil {
+		log.Println("Migrasi role staf->staff gagal:", err)
+	}
+	if err := DB.Model(&User{}).Where("role = ?", RoleStaff).Updates(map[string]interface{}{"program_studi_id": 0, "prodi": ""}).Error; err != nil {
+		log.Println("Normalisasi staff global gagal:", err)
 	}
 }
 
 func SeedAdmin() {
-	var admin User
-	if err := DB.Where("username = ?", "admin").First(&admin).Error; err != nil {
-		// Admin not found, let's create one as DPA
-		hashedPassword, _ := HashPassword("admin123")
-		newAdmin := User{
-			Username:     "admin",
-			PasswordHash: hashedPassword,
-			Nama:         "Dosen Pembimbing Akademik",
-			Role:         RoleDPA,
-		}
-		DB.Create(&newAdmin)
-		log.Println("DPA user created successfully (username: admin, password: admin123).")
-	} else {
-		// Admin exists, update password and role to ensure it works
-		hashedPassword, _ := HashPassword("admin123")
-		DB.Model(&admin).Updates(map[string]interface{}{
-			"password_hash": hashedPassword,
-			"role":          RoleDPA,
-		})
-		log.Println("DPA user updated to ensure login works (username: admin, password: admin123).")
-	}
+	seedBootstrapAccount("BOOTSTRAP_DPA", RoleDPA, "Dosen Pembimbing Akademik", true)
 }
 
 // SeedSuperadmin membuat akun kaprodi (superadmin) untuk analitik tingkat prodi.
 func SeedSuperadmin() {
-	var kaprodi User
-	if err := DB.Where("username = ?", "kaprodi").First(&kaprodi).Error; err != nil {
-		hashedPassword, _ := HashPassword("kaprodi123")
-		newKaprodi := User{
-			Username:     "kaprodi",
-			PasswordHash: hashedPassword,
-			Nama:         "Ketua Program Studi",
-			Role:         RoleSuperadmin,
-		}
-		DB.Create(&newKaprodi)
-		log.Println("Kaprodi user created successfully (username: kaprodi, password: kaprodi123).")
-	} else {
-		hashedPassword, _ := HashPassword("kaprodi123")
-		DB.Model(&kaprodi).Updates(map[string]interface{}{
-			"password_hash": hashedPassword,
-			"role":          RoleSuperadmin,
-		})
-		log.Println("Kaprodi user updated to ensure login works (username: kaprodi, password: kaprodi123).")
-	}
+	seedBootstrapAccount("BOOTSTRAP_KAPRODI", RoleSuperadmin, "Ketua Program Studi", true)
 }
 
 // SeedStaff membuat akun staf kampus pemroses laporan bimbingan.
 func SeedStaff() {
-	var staff User
-	if err := DB.Where("username = ?", "staff").First(&staff).Error; err != nil {
-		hashedPassword, _ := HashPassword("staff123")
-		newStaff := User{
-			Username:     "staff",
-			PasswordHash: hashedPassword,
-			Nama:         "Staf Kampus",
-			Role:         RoleStaff,
+	seedBootstrapAccount("BOOTSTRAP_STAFF", RoleStaff, "Staf Kampus", false)
+}
+
+func seedBootstrapAccount(prefix string, role string, defaultName string, requiresProgram bool) {
+	username := strings.ToLower(strings.TrimSpace(getEnv(prefix+"_USERNAME", "")))
+	password := getEnv(prefix+"_PASSWORD", "")
+	if username == "" || password == "" {
+		return
+	}
+
+	programID := uint(0)
+	if raw := strings.TrimSpace(getEnv(prefix+"_PROGRAM_STUDI_ID", "")); raw != "" {
+		parsed, err := strconv.ParseUint(raw, 10, 32)
+		if err != nil {
+			log.Printf("%s_PROGRAM_STUDI_ID tidak valid", prefix)
+			return
 		}
-		DB.Create(&newStaff)
-		log.Println("Staff user created successfully (username: staff, password: staff123).")
-	} else if !isStaffRole(staff.Role) {
-		DB.Model(&staff).Update("role", RoleStaff)
-		log.Println("Staff user role normalized (username: staff).")
+		programID = uint(parsed)
+	}
+	if requiresProgram {
+		program, ok := getProgramStudi(programID)
+		if !ok {
+			log.Printf("Bootstrap %s dilewati: program studi wajib valid", prefix)
+			return
+		}
+		_ = program
+	}
+	if role == RoleStaff {
+		programID = 0
+	}
+
+	var account User
+	if err := DB.Where("username = ?", username).First(&account).Error; err == nil {
+		if role == RoleSuperadmin && (normalizeRole(account.Role) != RoleSuperadmin || account.ProgramStudiID != programID) {
+			if err := validateSingleKaprodi(programID, account.ID); err != nil {
+				log.Printf("Bootstrap %s dilewati: %v", prefix, err)
+				return
+			}
+		}
+		updates := map[string]interface{}{"role": role}
+		if role == RoleStaff {
+			updates["program_studi_id"] = 0
+			updates["prodi"] = ""
+		} else if programID > 0 {
+			if program, ok := getProgramStudi(programID); ok {
+				updates["program_studi_id"] = programID
+				updates["prodi"] = program.Name
+			}
+		}
+		DB.Model(&account).Updates(updates)
+		return
+	}
+	if role == RoleSuperadmin {
+		if err := validateSingleKaprodi(programID, 0); err != nil {
+			log.Printf("Bootstrap %s dilewati: %v", prefix, err)
+			return
+		}
+	}
+
+	hashedPassword, err := HashPassword(password)
+	if err != nil {
+		log.Printf("Bootstrap %s gagal membuat password hash: %v", prefix, err)
+		return
+	}
+	account = User{Username: username, PasswordHash: hashedPassword, Nama: defaultName, Role: role, ProgramStudiID: programID}
+	if program, ok := getProgramStudi(programID); ok {
+		account.Prodi = program.Name
+	}
+	if err := DB.Create(&account).Error; err != nil {
+		log.Printf("Bootstrap %s gagal membuat akun: %v", prefix, err)
 	}
 }
 

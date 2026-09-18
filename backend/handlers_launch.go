@@ -99,7 +99,10 @@ func AdminLaunchReadinessHandler(c *gin.Context) {
 	now := time.Now()
 	since24h := now.Add(-24 * time.Hour)
 	since7d := now.AddDate(0, 0, -7)
-	samples := loadTrainingSamples()
+	actor := c.MustGet("user").(User)
+	userScope := userSubqueryForProgram(adminProgramScope(actor))
+	studentScope := scopedStudentSubquery(actor)
+	samples := loadTrainingSamplesForProgram(adminProgramScope(actor))
 
 	var users int64
 	var admins int64
@@ -111,16 +114,16 @@ func AdminLaunchReadinessHandler(c *gin.Context) {
 	var unreadReplies int64
 	var logs24h int64
 	var activity7d int64
-	DB.Model(&User{}).Count(&users)
-	DB.Model(&User{}).Where("role = ?", RoleSuperadmin).Count(&admins)
-	DB.Model(&Assessment{}).Count(&assessments)
-	DB.Model(&Prediction{}).Count(&predictions)
-	DB.Model(&Curhat{}).Count(&curhats)
-	DB.Model(&Curhat{}).Where("risk_level IN ? OR crisis_flag = ?", []string{"High", "Crisis"}, true).Count(&highCurhats)
-	DB.Model(&TherapyRecommendation{}).Where("status = ?", "pending").Count(&treatmentsPending)
-	DB.Model(&TreatmentReply{}).Where("admin_seen = ?", false).Count(&unreadReplies)
-	DB.Model(&ActivityLog{}).Where("created_at >= ?", since24h).Count(&logs24h)
-	DB.Model(&ActivityLog{}).Where("created_at >= ?", since7d).Count(&activity7d)
+	DB.Model(&User{}).Where("id IN (?)", userScope).Count(&users)
+	DB.Model(&User{}).Where("id IN (?) AND role = ?", userScope, RoleSuperadmin).Count(&admins)
+	DB.Model(&Assessment{}).Where("user_id IN (?)", studentScope).Count(&assessments)
+	DB.Model(&Prediction{}).Where("user_id IN (?)", studentScope).Count(&predictions)
+	DB.Model(&Curhat{}).Where("user_id IN (?)", studentScope).Count(&curhats)
+	DB.Model(&Curhat{}).Where("user_id IN (?) AND (risk_level IN ? OR crisis_flag = ?)", studentScope, []string{"High", "Crisis"}, true).Count(&highCurhats)
+	DB.Model(&TherapyRecommendation{}).Where("user_id IN (?) AND status = ?", studentScope, "pending").Count(&treatmentsPending)
+	DB.Model(&TreatmentReply{}).Where("user_id IN (?) AND admin_seen = ?", studentScope, false).Count(&unreadReplies)
+	DB.Model(&ActivityLog{}).Where("user_id IN (?) AND created_at >= ?", userScope, since24h).Count(&logs24h)
+	DB.Model(&ActivityLog{}).Where("user_id IN (?) AND created_at >= ?", userScope, since7d).Count(&activity7d)
 
 	config := getSystemConfig()
 	openRouterConfigured := getEnv("OPENROUTER_API_KEY", "") != ""
@@ -171,7 +174,7 @@ func AdminLaunchReadinessHandler(c *gin.Context) {
 		"warning":             warning,
 		"blocked":             blocked,
 		"checks":              checks,
-		"model_validation":    buildModelValidationReport(samples),
+		"model_validation":    buildModelValidationReport(samples, adminProgramScope(actor)),
 		"operational_metrics": gin.H{"users": users, "assessments": assessments, "predictions": predictions, "curhats": curhats, "high_curhats": highCurhats, "pending_treatments": treatmentsPending, "unread_replies": unreadReplies, "activity_24h": logs24h},
 		"next_moves":          launchNextMoves(checks),
 	})

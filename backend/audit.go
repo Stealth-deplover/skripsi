@@ -18,7 +18,7 @@ func RequireRole(roles ...string) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		user, ok := c.MustGet("user").(User)
-		if !ok || !allowed[strings.ToLower(user.Role)] {
+		if !ok || !allowed[normalizeRole(user.Role)] {
 			recordActivity(c, &user, "access_denied", "security", "", gin.H{"allowed_roles": roles})
 			c.JSON(http.StatusForbidden, gin.H{"error": "Akses tidak diizinkan untuk role ini"})
 			c.Abort()
@@ -104,6 +104,7 @@ func inferActivityAction(method string, path string) string {
 }
 
 func AdminActivityLogsHandler(c *gin.Context) {
+	actor := c.MustGet("user").(User)
 	page := parsePositiveInt(c.DefaultQuery("page", "1"), 1)
 	limit := parsePositiveInt(c.DefaultQuery("limit", "50"), 50)
 	if limit > 100 {
@@ -111,6 +112,7 @@ func AdminActivityLogsHandler(c *gin.Context) {
 	}
 
 	query := DB.Model(&ActivityLog{})
+	query = query.Where("user_id IN (?)", userSubqueryForProgram(adminProgramScope(actor)))
 	if role := strings.TrimSpace(c.Query("role")); role != "" {
 		query = query.Where("role = ?", role)
 	}
@@ -139,6 +141,9 @@ func AdminActivityLogsHandler(c *gin.Context) {
 }
 
 func AdminSystemHealthHandler(c *gin.Context) {
+	actor := c.MustGet("user").(User)
+	userScope := userSubqueryForProgram(adminProgramScope(actor))
+	studentScope := scopedStudentSubquery(actor)
 	sqlDB, dbErr := DB.DB()
 	database := "ok"
 	if dbErr != nil || sqlDB.Ping() != nil {
@@ -150,10 +155,10 @@ func AdminSystemHealthHandler(c *gin.Context) {
 	var predictions int64
 	var logs24h int64
 	since := time.Now().Add(-24 * time.Hour)
-	DB.Model(&User{}).Count(&users)
-	DB.Model(&Assessment{}).Count(&assessments)
-	DB.Model(&Prediction{}).Count(&predictions)
-	DB.Model(&ActivityLog{}).Where("created_at >= ?", since).Count(&logs24h)
+	DB.Model(&User{}).Where("id IN (?)", userScope).Count(&users)
+	DB.Model(&Assessment{}).Where("user_id IN (?)", studentScope).Count(&assessments)
+	DB.Model(&Prediction{}).Where("user_id IN (?)", studentScope).Count(&predictions)
+	DB.Model(&ActivityLog{}).Where("user_id IN (?) AND created_at >= ?", userScope, since).Count(&logs24h)
 
 	c.JSON(http.StatusOK, gin.H{
 		"status":               map[bool]string{true: "ok", false: "degraded"}[database == "ok"],

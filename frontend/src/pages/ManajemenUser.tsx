@@ -28,12 +28,16 @@ type ModalMode = 'create' | 'edit';
 interface ManagedUser {
   id: number;
   username: string;
+  email: string;
   nama: string;
   role: string;
   bio: string;
   profile_pic: string;
   nim: string;
   prodi: string;
+  program_studi_id: number;
+  program_studi_label: string;
+  mapping_status: string;
   angkatan: string;
   semester: number;
   ipk: number;
@@ -46,14 +50,24 @@ interface ManagedUser {
   updated_at: string;
 }
 
+interface ProgramStudi {
+  id: number;
+  code: string;
+  name: string;
+  degree: string;
+  label: string;
+}
+
 const emptyForm = {
   nama: '',
   username: '',
+  email: '',
   role: 'student',
   password: '',
   bio: '',
   nim: '',
   prodi: '',
+  program_studi_id: '',
   angkatan: '',
   semester: '',
   ipk: '',
@@ -112,6 +126,7 @@ const passwordValid = (value: string) => {
 
 export default function ManajemenUser() {
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [programs, setPrograms] = useState<ProgramStudi[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -136,6 +151,9 @@ export default function ManajemenUser() {
 
   useEffect(() => {
     fetchUsers();
+    api.get('/public/program-studi')
+      .then((response) => setPrograms(response.data.program_studi || []))
+      .catch(() => setMessage({ type: 'error', text: 'Daftar program studi belum dapat dimuat' }));
   }, []);
 
   useEffect(() => {
@@ -158,7 +176,7 @@ export default function ManajemenUser() {
       const type = getAccountType(user);
       if (filter !== 'all' && type !== filter) return false;
       if (!keyword) return true;
-      return `${user.nama} ${user.username} ${type} ${user.nim || ''} ${user.prodi || ''} ${user.bio || ''}`.toLowerCase().includes(keyword);
+      return `${user.nama} ${user.username} ${user.email || ''} ${type} ${user.nim || ''} ${user.program_studi_label || user.prodi || ''} ${user.bio || ''}`.toLowerCase().includes(keyword);
     });
   }, [filter, search, users]);
 
@@ -166,6 +184,12 @@ export default function ManajemenUser() {
     () => users.filter((user) => getAccountType(user) === 'dpa'),
     [users],
   );
+
+  const formDpaOptions = useMemo(() => {
+    const programID = Number(form.program_studi_id);
+    if (!programID) return [];
+    return dpaOptions.filter((dpa) => dpa.program_studi_id === programID);
+  }, [dpaOptions, form.program_studi_id]);
 
   const pieData = [
     { name: 'Kaprodi', value: stats.kaprodi, color: accountMeta.kaprodi.accent },
@@ -186,11 +210,13 @@ export default function ManajemenUser() {
     setForm({
       nama: user.nama,
       username: user.username,
-      role: type === 'kaprodi' ? 'superadmin' : type === 'dpa' ? 'dpa' : 'student',
+      email: user.email || '',
+      role: type === 'kaprodi' ? 'superadmin' : type === 'dpa' ? 'dpa' : type === 'staff' ? 'staff' : 'student',
       password: '',
       bio: user.bio || '',
       nim: user.nim || '',
       prodi: user.prodi || '',
+      program_studi_id: user.program_studi_id ? String(user.program_studi_id) : '',
       angkatan: user.angkatan || '',
       semester: user.semester ? String(user.semester) : '',
       ipk: user.ipk ? String(user.ipk) : '',
@@ -213,13 +239,16 @@ export default function ManajemenUser() {
     const cleanForm: Record<string, unknown> = {
       nama: form.nama.trim(),
       username: form.username.trim().toLowerCase(),
+      email: form.email.trim().toLowerCase(),
       role: form.role,
+      password: form.password,
       bio: form.bio,
+      program_studi_id: form.role === 'staff' ? 0 : Number(form.program_studi_id || 0),
     };
 
     if (form.role === 'student') {
       cleanForm.nim = form.nim.trim();
-      cleanForm.prodi = form.prodi.trim();
+      cleanForm.prodi = programs.find((program) => program.id === Number(form.program_studi_id))?.name || form.prodi.trim();
       cleanForm.angkatan = form.angkatan.trim();
       cleanForm.semester = form.semester === '' ? 0 : Number(form.semester);
       cleanForm.ipk = form.ipk === '' ? 0 : Number(form.ipk);
@@ -235,6 +264,14 @@ export default function ManajemenUser() {
     }
     if (!/^[a-zA-Z0-9._@-]{3,80}$/.test(cleanForm.username)) {
       setMessage({ type: 'error', text: 'Username hanya boleh huruf, angka, titik, underscore, strip, atau email' });
+      return;
+    }
+    if (cleanForm.email && !/^\S+@\S+\.\S+$/.test(String(cleanForm.email))) {
+      setMessage({ type: 'error', text: 'Email belum valid' });
+      return;
+    }
+    if (form.role !== 'staff' && !form.program_studi_id) {
+      setMessage({ type: 'error', text: 'Pilih program studi untuk akun ini' });
       return;
     }
     if (modalMode === 'create' && !passwordValid(cleanForm.password)) {
@@ -267,7 +304,7 @@ export default function ManajemenUser() {
   // ---- Mapping massal mahasiswa -> DPA ----
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkDpaId, setBulkDpaId] = useState('');
-  const [bulkProdi, setBulkProdi] = useState('');
+  const [bulkProgramId, setBulkProgramId] = useState('');
   const [bulkAngkatan, setBulkAngkatan] = useState('');
   const [bulkSemester, setBulkSemester] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
@@ -276,13 +313,19 @@ export default function ManajemenUser() {
     () =>
       users.filter((user) => {
         if (getAccountType(user) !== 'mahasiswa') return false;
-        if (bulkProdi.trim() && !(user.prodi || '').toLowerCase().includes(bulkProdi.trim().toLowerCase())) return false;
+        if (bulkProgramId && user.program_studi_id !== Number(bulkProgramId)) return false;
         if (bulkAngkatan.trim() && (user.angkatan || '') !== bulkAngkatan.trim()) return false;
         if (bulkSemester.trim() && String(user.semester) !== bulkSemester.trim()) return false;
         return true;
       }),
-    [users, bulkProdi, bulkAngkatan, bulkSemester],
+    [users, bulkProgramId, bulkAngkatan, bulkSemester],
   );
+
+  const bulkDpaOptions = useMemo(() => {
+    const programID = Number(bulkProgramId);
+    if (!programID) return [];
+    return dpaOptions.filter((dpa) => dpa.program_studi_id === programID);
+  }, [bulkProgramId, dpaOptions]);
 
   const submitBulk = async () => {
     if (!bulkDpaId || bulkTargets.length === 0) return;
@@ -465,6 +508,9 @@ export default function ManajemenUser() {
                         const type = getAccountType(user);
                         const meta = accountMeta[type];
                         const Icon = meta.icon;
+                        const programLabel = user.mapping_status === 'belum_terpetakan'
+                          ? 'Belum dipetakan'
+                          : user.program_studi_label || user.prodi || (type === 'staff' ? 'Global' : 'Belum dipetakan');
                         return (
                           <tr key={user.id} className="transition hover:bg-white/[0.03]">
                             <td className="px-4 py-4 text-slate-500">{index + 1}</td>
@@ -475,9 +521,9 @@ export default function ManajemenUser() {
                                 </div>
                                 <div className="min-w-0">
                                   <p className="truncate font-semibold text-slate-100" title={user.nama}>{user.nama || 'Tanpa nama'}</p>
-                                  <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-500" title={user.username}>
+                                  <p className="mt-1 flex items-center gap-1 truncate text-xs text-slate-500" title={user.email || user.username}>
                                     <Mail className="h-3 w-3 shrink-0" />
-                                    {user.username}
+                                    {user.email || user.username}
                                   </p>
                                 </div>
                               </div>
@@ -494,14 +540,11 @@ export default function ManajemenUser() {
                               )}
                             </td>
                             <td className="px-4 py-4">
-                              {type === 'mahasiswa' ? (
-                                <div className="text-xs">
-                                  <p className="font-semibold text-slate-200">{user.nim || '-'}</p>
-                                  <p className="mt-1 text-slate-500">{user.prodi || '-'}{user.semester ? ` · Smt ${user.semester}` : ''}</p>
-                                </div>
-                              ) : (
-                                <span className="text-xs text-slate-500">—</span>
-                              )}
+                              <div className="text-xs">
+                                {type === 'mahasiswa' && <p className="font-semibold text-slate-200">{user.nim || '-'}</p>}
+                                <p className="mt-1 text-slate-400">{programLabel}</p>
+                                {type === 'mahasiswa' && user.semester ? <p className="mt-1 text-slate-500">Semester {user.semester}</p> : null}
+                              </div>
                             </td>
                             <td className="px-4 py-4">
                               <p className="truncate text-xs text-slate-400" title={user.bio || '-'}>{user.bio || '-'}</p>
@@ -621,7 +664,7 @@ export default function ManajemenUser() {
                   />
                 </label>
                 <label className="block">
-                  <span className="text-xs font-semibold text-slate-400">Username / email</span>
+                  <span className="text-xs font-semibold text-slate-400">Username</span>
                   <input
                     value={form.username}
                     onChange={(event) => setForm({ ...form, username: event.target.value })}
@@ -630,6 +673,17 @@ export default function ManajemenUser() {
                   />
                 </label>
               </div>
+
+              <label className="block">
+                <span className="text-xs font-semibold text-slate-400">Email</span>
+                <input
+                  type="email"
+                  value={form.email}
+                  onChange={(event) => setForm({ ...form, email: event.target.value })}
+                  placeholder="opsional untuk akun internal"
+                  className="mt-1 h-10 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/50"
+                />
+              </label>
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <label className="block">
@@ -663,24 +717,30 @@ export default function ManajemenUser() {
                 </label>
               </div>
 
+              {form.role !== 'staff' && (
+                <label className="block">
+                  <span className="text-xs font-semibold text-slate-400">Program Studi</span>
+                  <select
+                    value={form.program_studi_id}
+                    onChange={(event) => setForm({ ...form, program_studi_id: event.target.value, dpa_id: '' })}
+                    className="mt-1 h-10 w-full rounded-md border border-white/10 bg-slate-900 px-3 text-sm text-white outline-none focus:border-cyan-300/50"
+                    required
+                  >
+                    <option value="">Pilih program studi</option>
+                    {programs.map((program) => <option key={program.id} value={program.id}>{program.label}</option>)}
+                  </select>
+                </label>
+              )}
+
               {form.role === 'student' && (
                 <>
-                  <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <label className="block">
                       <span className="text-xs font-semibold text-slate-400">NIM</span>
                       <input
                         value={form.nim}
                         onChange={(event) => setForm({ ...form, nim: event.target.value })}
                         className="mt-1 h-10 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none focus:border-cyan-300/50"
-                      />
-                    </label>
-                    <label className="block">
-                      <span className="text-xs font-semibold text-slate-400">Program Studi</span>
-                      <input
-                        value={form.prodi}
-                        onChange={(event) => setForm({ ...form, prodi: event.target.value })}
-                        placeholder="cth. Informatika"
-                        className="mt-1 h-10 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/50"
                       />
                     </label>
                     <label className="block">
@@ -749,7 +809,7 @@ export default function ManajemenUser() {
                         className="mt-1 h-10 w-full rounded-md border border-white/10 bg-slate-900 px-3 text-sm text-white outline-none focus:border-cyan-300/50"
                       >
                         <option value="">— Belum dipetakan —</option>
-                        {dpaOptions.map((dpa) => (
+                        {formDpaOptions.map((dpa) => (
                           <option key={dpa.id} value={dpa.id}>{dpa.nama} ({dpa.username})</option>
                         ))}
                       </select>
@@ -813,18 +873,26 @@ export default function ManajemenUser() {
                 <select
                   value={bulkDpaId}
                   onChange={(event) => setBulkDpaId(event.target.value)}
+                  disabled={!bulkProgramId}
                   className="mt-1 h-10 w-full rounded-md border border-white/10 bg-slate-900 px-3 text-sm text-white outline-none focus:border-cyan-300/50"
                 >
-                  <option value="">— Pilih DPA —</option>
-                  {dpaOptions.map((dpa) => (
+                  <option value="">{bulkProgramId ? 'Pilih DPA' : 'Pilih program studi terlebih dahulu'}</option>
+                  {bulkDpaOptions.map((dpa) => (
                     <option key={dpa.id} value={dpa.id}>{dpa.nama} ({dpa.username})</option>
                   ))}
                 </select>
               </label>
               <div className="grid gap-3 sm:grid-cols-3">
                 <label className="block">
-                  <span className="text-xs font-semibold text-slate-400">Prodi mengandung</span>
-                  <input value={bulkProdi} onChange={(e) => setBulkProdi(e.target.value)} placeholder="cth. Informatika" className="mt-1 h-10 w-full rounded-md border border-white/10 bg-white/[0.04] px-3 text-sm text-white outline-none placeholder:text-slate-600 focus:border-cyan-300/50" />
+                  <span className="text-xs font-semibold text-slate-400">Program Studi</span>
+                  <select
+                    value={bulkProgramId}
+                    onChange={(e) => { setBulkProgramId(e.target.value); setBulkDpaId(''); }}
+                    className="mt-1 h-10 w-full rounded-md border border-white/10 bg-slate-900 px-3 text-sm text-white outline-none focus:border-cyan-300/50"
+                  >
+                    <option value="">Semua program studi</option>
+                    {programs.map((program) => <option key={program.id} value={program.id}>{program.label}</option>)}
+                  </select>
                 </label>
                 <label className="block">
                   <span className="text-xs font-semibold text-slate-400">Angkatan</span>

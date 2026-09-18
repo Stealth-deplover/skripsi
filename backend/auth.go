@@ -1,13 +1,36 @@
 package main
 
 import (
+	"crypto/rand"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtKey = []byte(getEnv("SECRET_KEY", "b4rn0u7_qU4ntUm_s3cr3t_k3y_992"))
+var jwtKey []byte
+
+func configureJWTKey() {
+	secret := strings.TrimSpace(getEnv("SECRET_KEY", ""))
+	if secret != "" {
+		if len(secret) < 32 {
+			log.Fatal("SECRET_KEY harus memiliki panjang minimal 32 karakter")
+		}
+		jwtKey = []byte(secret)
+		return
+	}
+	if strings.EqualFold(getEnv("APP_ENV", "development"), "production") {
+		log.Fatal("SECRET_KEY wajib diisi pada environment production")
+	}
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		log.Fatal("Gagal membuat secret key development:", err)
+	}
+	jwtKey = key
+	log.Println("SECRET_KEY tidak diatur; memakai key acak sementara untuk development")
+}
 
 func HashPassword(password string) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(password), 10)

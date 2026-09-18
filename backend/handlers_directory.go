@@ -26,7 +26,17 @@ func DpaDirectoryHandler(c *gin.Context) {
 	}
 
 	var dpas []User
-	DB.Where("role = ?", RoleDPA).Order("nama ASC").Find(&dpas)
+	dpaQuery := DB.Where("role = ?", RoleDPA)
+	mappingRequired := false
+	if role == RoleStudent {
+		if user.ProgramStudiID > 0 {
+			dpaQuery = dpaQuery.Where("program_studi_id = ?", user.ProgramStudiID)
+		} else {
+			mappingRequired = true
+			dpaQuery = dpaQuery.Where("1 = 0")
+		}
+	}
+	dpaQuery.Order("nama ASC").Find(&dpas)
 
 	type AdviseeInfo struct {
 		Count int
@@ -96,63 +106,18 @@ func DpaDirectoryHandler(c *gin.Context) {
 		cards = append(cards, card)
 	}
 
-	c.JSON(http.StatusOK, gin.H{"dpa_list": cards})
+	c.JSON(http.StatusOK, gin.H{"dpa_list": cards, "mapping_required": mappingRequired})
 }
 
-// StudentJoinDpaHandler memetakan mahasiswa ke DPA pilihannya sehingga
-// langsung bergabung ke grup chat bimbingan DPA tersebut.
+// StudentJoinDpaHandler dipertahankan untuk kompatibilitas client lama.
+// Penetapan DPA sekarang hanya dilakukan Kaprodi/admin.
 func StudentJoinDpaHandler(c *gin.Context) {
 	student := c.MustGet("user").(User)
 	if !isStudentRole(student.Role) {
-		c.JSON(http.StatusForbidden, gin.H{"error": "Hanya mahasiswa yang dapat bergabung ke grup bimbingan"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "Hanya mahasiswa yang dapat mengakses data bimbingan"})
 		return
 	}
-
-	dpaID, ok := parseUintParam(c, "id")
-	if !ok {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ID DPA tidak valid"})
-		return
-	}
-	var dpa User
-	if err := DB.Where("id = ? AND role = ?", dpaID, RoleDPA).First(&dpa).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "DPA tidak ditemukan"})
-		return
-	}
-
-	previousDpaID := student.DpaID
-	if previousDpaID == dpaID {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "success",
-			"message": "Anda sudah tergabung di grup bimbingan ini",
-			"dpa":     gin.H{"id": dpa.ID, "nama": dpa.Nama},
-		})
-		return
-	}
-
-	if err := DB.Model(&student).Update("dpa_id", dpaID).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Gagal bergabung ke grup bimbingan"})
-		return
-	}
-
-	// Notifikasi: DPA baru menerima mahasiswa; DPA lama (jika pindah) ikut tahu.
-	DB.Create(&Notification{
-		UserID:  dpa.ID,
-		Type:    "dpa_chat",
-		Message: fmt.Sprintf("Mahasiswa %s bergabung ke grup bimbingan Anda.", student.Nama),
-	})
-	if previousDpaID != 0 {
-		DB.Create(&Notification{
-			UserID:  previousDpaID,
-			Type:    "student_wellbeing",
-			Message: fmt.Sprintf("Mahasiswa %s berpindah ke grup bimbingan lain.", student.Nama),
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"status":  "success",
-		"message": fmt.Sprintf("Anda kini tergabung di grup bimbingan %s.", dpa.Nama),
-		"dpa":     gin.H{"id": dpa.ID, "nama": dpa.Nama},
-	})
+	c.JSON(http.StatusForbidden, gin.H{"error": "Penetapan DPA dilakukan oleh Kaprodi atau admin kampus"})
 }
 
 // DpaRateHandler menyimpan/mengubah rating bintang (1-5) + ulasan
@@ -164,7 +129,7 @@ func DpaRateHandler(c *gin.Context) {
 		return
 	}
 	if student.DpaID == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Gabung ke grup bimbingan terlebih dahulu sebelum memberi penilaian"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "DPA belum ditetapkan oleh Kaprodi atau admin kampus"})
 		return
 	}
 
@@ -241,6 +206,7 @@ func DpaMyRatingHandler(c *gin.Context) {
 // SuperadminDpaRatingsHandler: rekap Gojek-style untuk Kaprodi.
 // Tanpa identitas penilai: distribusi, response_rate, rekomendasi otomatis, ulasan anonim, tindak lanjut.
 func SuperadminDpaRatingsHandler(c *gin.Context) {
+	actor := c.MustGet("user").(User)
 	type Review struct {
 		Stars     int       `json:"stars"`
 		Comment   string    `json:"comment"`
@@ -264,7 +230,15 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 	}
 
 	var dpas []User
-	DB.Where("role = ?", RoleDPA).Order("nama ASC").Find(&dpas)
+	dpaQuery := DB.Where("role = ?", RoleDPA)
+	if scope := adminProgramScope(actor); scope > 0 {
+		dpaQuery = dpaQuery.Where("program_studi_id = ?", scope)
+	}
+	dpaQuery.Order("nama ASC").Find(&dpas)
+	dpaIDs := make([]uint, 0, len(dpas))
+	for _, dpa := range dpas {
+		dpaIDs = append(dpaIDs, dpa.ID)
+	}
 
 	// Aggregate avg + count
 	type Agg struct {
@@ -273,10 +247,13 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 		Avg     float64
 	}
 	var aggs []Agg
-	DB.Model(&DpaRating{}).
+	aggQuery := DB.Model(&DpaRating{}).
 		Select("dpa_id, COUNT(*) as rated_by, AVG(stars) as avg").
-		Group("dpa_id").
-		Scan(&aggs)
+		Group("dpa_id")
+	if adminProgramScope(actor) > 0 {
+		aggQuery = aggQuery.Where("dpa_id IN ?", dpaIDs)
+	}
+	aggQuery.Scan(&aggs)
 	aggByDpa := map[uint]Agg{}
 	for _, agg := range aggs {
 		aggByDpa[agg.DpaID] = agg
@@ -289,7 +266,11 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 		Cnt   int64
 	}
 	var distRows []DistRow
-	DB.Model(&DpaRating{}).Select("dpa_id, stars, COUNT(*) as cnt").Group("dpa_id, stars").Scan(&distRows)
+	distQuery := DB.Model(&DpaRating{}).Select("dpa_id, stars, COUNT(*) as cnt").Group("dpa_id, stars")
+	if adminProgramScope(actor) > 0 {
+		distQuery = distQuery.Where("dpa_id IN ?", dpaIDs)
+	}
+	distQuery.Scan(&distRows)
 	distByDpa := map[uint]map[string]int64{}
 	for _, r := range distRows {
 		if _, ok := distByDpa[r.DpaID]; !ok {
@@ -300,16 +281,20 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 
 	// Follow up terbaru per DPA
 	type Follow struct {
-		DpaID uint
-		Note  string
-		Status string
+		DpaID     uint
+		Note      string
+		Status    string
 		CreatedAt time.Time
 		UpdatedAt time.Time
-		ID uint
+		ID        uint
 	}
 	followByDpa := map[uint]Follow{}
 	var follows []DpaFollowUp
-	DB.Order("updated_at DESC").Find(&follows)
+	followQuery := DB.Order("updated_at DESC")
+	if adminProgramScope(actor) > 0 {
+		followQuery = followQuery.Where("dpa_id IN ?", dpaIDs)
+	}
+	followQuery.Find(&follows)
 	for _, f := range follows {
 		if _, ok := followByDpa[f.DpaID]; !ok {
 			followByDpa[f.DpaID] = Follow{DpaID: f.DpaID, Note: f.Note, Status: f.Status, CreatedAt: f.CreatedAt, UpdatedAt: f.UpdatedAt, ID: f.ID}
@@ -375,7 +360,11 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 	}
 
 	var totalRatings int64
-	DB.Model(&DpaRating{}).Count(&totalRatings)
+	totalRatingQuery := DB.Model(&DpaRating{})
+	if adminProgramScope(actor) > 0 {
+		totalRatingQuery = totalRatingQuery.Where("dpa_id IN ?", dpaIDs)
+	}
+	totalRatingQuery.Count(&totalRatings)
 
 	overallAvg := 0.0
 	if countedAvg > 0 {
@@ -389,7 +378,11 @@ func SuperadminDpaRatingsHandler(c *gin.Context) {
 		Cnt      int64
 	}
 	var semAggs []SemesterAgg
-	DB.Model(&DpaRating{}).Select("semester as semester, AVG(stars) as avg, COUNT(*) as cnt").Where("semester <> ''").Group("semester").Order("semester ASC").Scan(&semAggs)
+	semesterQuery := DB.Model(&DpaRating{}).Select("semester as semester, AVG(stars) as avg, COUNT(*) as cnt").Where("semester <> ''").Group("semester").Order("semester ASC")
+	if adminProgramScope(actor) > 0 {
+		semesterQuery = semesterQuery.Where("dpa_id IN ?", dpaIDs)
+	}
+	semesterQuery.Scan(&semAggs)
 	semesterTrend := make([]gin.H, 0, len(semAggs))
 	for _, s := range semAggs {
 		semesterTrend = append(semesterTrend, gin.H{"semester": s.Semester, "average_stars": round2(s.Avg), "count": s.Cnt})
@@ -500,6 +493,9 @@ func SuperadminDpaRatingFollowUpHandler(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "DPA tidak ditemukan"})
 		return
 	}
+	if !requireAdminUserAccess(c, dpa) {
+		return
+	}
 	var input struct {
 		Note   string `json:"note" binding:"required"`
 		Status string `json:"status"`
@@ -533,6 +529,14 @@ func SuperadminDpaRatingFollowUpListHandler(c *gin.Context) {
 		return
 	}
 	var list []DpaFollowUp
+	var dpa User
+	if err := DB.Where("id = ? AND role = ?", dpaID, RoleDPA).First(&dpa).Error; err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "DPA tidak ditemukan"})
+		return
+	}
+	if !requireAdminUserAccess(c, dpa) {
+		return
+	}
 	DB.Where("dpa_id = ?", dpaID).Order("updated_at DESC").Find(&list)
 	c.JSON(http.StatusOK, gin.H{"follow_ups": list})
 }
@@ -546,6 +550,14 @@ func SuperadminDpaRatingFollowUpPatchHandler(c *gin.Context) {
 	var fu DpaFollowUp
 	if err := DB.First(&fu, id).Error; err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Tindak lanjut tidak ditemukan"})
+		return
+	}
+	var dpa User
+	if err := DB.Where("id = ? AND role = ?", fu.DpaID, RoleDPA).First(&dpa).Error; err != nil || !requireAdminUserAccess(c, dpa) {
+		if err == nil {
+			return
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "DPA tidak ditemukan"})
 		return
 	}
 	var input struct {

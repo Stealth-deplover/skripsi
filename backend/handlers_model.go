@@ -12,7 +12,8 @@ func AdminModelEvaluationV2Handler(c *gin.Context) {
 		return
 	}
 
-	samples := loadTrainingSamples()
+	actor := c.MustGet("user").(User)
+	samples := loadTrainingSamplesForProgram(adminProgramScope(actor))
 	if len(samples) == 0 {
 		c.JSON(http.StatusOK, gin.H{
 			"r2_score":           0,
@@ -30,7 +31,7 @@ func AdminModelEvaluationV2Handler(c *gin.Context) {
 				"burnout":       "Belum ada model terlatih",
 				"psychosomatic": "Belum ada model terlatih",
 			},
-			"validation": buildModelValidationReport(samples),
+			"validation": buildModelValidationReport(samples, adminProgramScope(actor)),
 			"metadata": gin.H{
 				"active_model":        "Belum tersedia",
 				"trained":             false,
@@ -123,7 +124,7 @@ func AdminModelEvaluationV2Handler(c *gin.Context) {
 			"burnout":       activeFormula,
 			"psychosomatic": psychosomaticFormula,
 		},
-		"validation": buildModelValidationReport(samples),
+		"validation": buildModelValidationReport(samples, adminProgramScope(actor)),
 		"metadata": gin.H{
 			"active_model":        activeModelName,
 			"trained":             quantumOK,
@@ -138,9 +139,9 @@ func AdminModelEvaluationV2Handler(c *gin.Context) {
 	})
 }
 
-func buildModelValidationReport(samples []TrainingSample) gin.H {
+func buildModelValidationReport(samples []TrainingSample, programID uint) gin.H {
 	total := len(samples)
-	profile := buildValidationDatasetProfile(samples)
+	profile := buildValidationDatasetProfile(samples, programID)
 	if total == 0 {
 		return gin.H{
 			"status":       "Belum tervalidasi",
@@ -224,7 +225,7 @@ func buildModelValidationReport(samples []TrainingSample) gin.H {
 	}
 }
 
-func buildValidationDatasetProfile(samples []TrainingSample) gin.H {
+func buildValidationDatasetProfile(samples []TrainingSample, programID uint) gin.H {
 	userIDs := map[uint]bool{}
 	riskCounts := map[string]int{"Low": 0, "Medium": 0, "High": 0, "Crisis": 0}
 	start := ""
@@ -249,8 +250,9 @@ func buildValidationDatasetProfile(samples []TrainingSample) gin.H {
 
 	var assessmentCount int64
 	var predictionCount int64
-	DB.Model(&Assessment{}).Count(&assessmentCount)
-	DB.Model(&Prediction{}).Count(&predictionCount)
+	studentScope := studentSubqueryForProgram(programID)
+	DB.Model(&Assessment{}).Where("user_id IN (?)", studentScope).Count(&assessmentCount)
+	DB.Model(&Prediction{}).Where("user_id IN (?)", studentScope).Count(&predictionCount)
 
 	return gin.H{
 		"source":               "MySQL operational database",
